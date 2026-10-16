@@ -86,6 +86,15 @@ curl -i -X POST http://localhost:8000/api/v1/verification-jobs \
 
 # poll (use the id from the response)
 curl http://localhost:8000/api/v1/verification-jobs/<job_id>
+
+# saved verification history (optional filters: risk_level, from, to, cursor)
+curl 'http://localhost:8000/api/v1/verifications?limit=20&risk_level=safe'
+
+# one saved verification (use an id from history or a completed job)
+curl http://localhost:8000/api/v1/verifications/<verification_id>
+
+# service health
+curl http://localhost:8000/health
 ```
 
 In stub mode, links with shop id `218334561` get the "safe" sample and
