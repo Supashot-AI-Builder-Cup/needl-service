@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 try:
     from google import genai
@@ -168,3 +168,30 @@ async def analyze_images(images, prompt=None, model=None):
     except Exception:
         text = None
     return _parse_json(text or "")
+
+
+async def generate_structured(contents, schema, model=None, temperature=0.1):
+    """Ask Gemini for JSON matching a Pydantic model and return the parsed model.
+
+    Raises RuntimeError when Gemini is not configured, ValueError when the
+    answer does not match the schema.
+    """
+    client = _client()
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_INSTRUCTION,
+        response_mime_type="application/json",
+        response_schema=schema,
+        temperature=temperature,
+    )
+    response = await client.aio.models.generate_content(
+        model=model or DEFAULT_MODEL,
+        contents=contents,
+        config=config,
+    )
+    if isinstance(response.parsed, schema):
+        return response.parsed
+    return schema.model_validate_json(response.text or "")
+
+
+def image_part(data: bytes, mime_type: str):
+    return types.Part.from_bytes(data=data, mime_type=mime_type)

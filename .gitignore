@@ -1,6 +1,14 @@
 .agents/
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
 backend/.venv/
 .env
 backend/.env
+
+# SQLite database and screenshot uploads
+data/
+
+# Raw provider responses from scripts.shopee_fetch --save (contain reviewer names).
+tests/fixtures/shopee/
