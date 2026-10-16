@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.analysis.stub import StubAnalyzer
 from app.api.errors import RequestIdMiddleware, install_error_handlers
 from app.api.rate_limit import RateLimiter
+from app.api.verifications import router as verifications_router
 from app.api.verification_jobs import router as verification_jobs_router
 from app.config import Settings, load_settings
 from app.db.repository import Repository
@@ -114,6 +115,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
         }
 
     app.include_router(verification_jobs_router)
+    app.include_router(verifications_router)
     return app
 
 

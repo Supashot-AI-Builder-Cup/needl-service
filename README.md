@@ -10,11 +10,13 @@ Implemented now:
 |---|---|
 | `POST /api/v1/verification-jobs` | Start a job from a link (JSON) or screenshots (multipart) |
 | `GET /api/v1/verification-jobs/{job_id}` | Poll progress, preview and the final result |
+| `GET /api/v1/verifications` | List saved scans with filters and cursor pagination |
+| `GET /api/v1/verifications/{verification_id}` | Read one saved result |
 | `GET /health` | Service check |
 
-Not yet: `GET /api/v1/verifications` and `GET /api/v1/verifications/{id}`
-(the `verifications` table already stores what they need), and the real
-analyzer (`NEEDL_ANALYZER=real`).
+The real analyzer (`NEEDL_ANALYZER=real`) is not implemented yet. In stub mode,
+completed jobs save sample verification results in SQLite; the history and detail
+endpoints read those same records.
 
 ---
 
@@ -84,10 +86,27 @@ curl -i -X POST http://localhost:8000/api/v1/verification-jobs \
 
 # poll (use the id from the response)
 curl http://localhost:8000/api/v1/verification-jobs/<job_id>
+
+# saved verification history (optional filters: risk_level, from, to, cursor)
+curl 'http://localhost:8000/api/v1/verifications?limit=20&risk_level=safe'
+
+# one saved verification (use an id from history or a completed job)
+curl http://localhost:8000/api/v1/verifications/<verification_id>
+
+# service health
+curl http://localhost:8000/health
 ```
 
 In stub mode, links with shop id `218334561` get the "safe" sample and
 everything else gets the "risky" sample, like the needl-ui mock.
+
+Seed saved history with 10 alternating safe/risky demo records (or choose a
+count/database path):
+
+```bash
+python -m scripts.seed_dummy --count 10
+python -m scripts.seed_dummy --count 25 --db data/demo.db
+```
 
 ## 5. Shopee links in live mode
 
