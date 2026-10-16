@@ -21,12 +21,11 @@ from ..contract.jobs import (
     VerificationJobAccepted,
     VerificationJobResponse,
 )
-from ..db.repository import JobRecord, utc_now
+from ..db.models import JobRecord, utc_now
 from ..jobs.progress import poll_after_seconds
 from ..sources.screenshot_files import (
     EXTRA_FIELD,
     EXTRA_NAMES_FIELD,
-    MAX_TOTAL_BYTES,
     SLOT_FIELDS,
     read_screenshot_form,
     remove_upload,
@@ -39,7 +38,7 @@ router = APIRouter(prefix="/api/v1", tags=["verification-jobs"])
 
 MAX_JSON_BYTES = 16 * 1024
 # Multipart boundaries and headers add a little on top of the image bytes.
-MAX_MULTIPART_BYTES = MAX_TOTAL_BYTES + 256 * 1024
+MULTIPART_OVERHEAD_BYTES = 256 * 1024
 SCREENSHOT_KEYS = set(SLOT_FIELDS) | {EXTRA_FIELD, EXTRA_NAMES_FIELD}
 
 _REQUEST_BODIES = {
@@ -161,13 +160,15 @@ async def create_verification_job(
             updated_at=now,
         )
     elif content_type == "multipart/form-data":
-        _check_content_length(request, MAX_MULTIPART_BYTES)
-        limited = Request(request.scope, _limited_receive(request.receive, MAX_MULTIPART_BYTES))
+        max_total = state.settings.max_upload_total_bytes
+        max_body = max_total + MULTIPART_OVERHEAD_BYTES
+        _check_content_length(request, max_body)
+        limited = Request(request.scope, _limited_receive(request.receive, max_body))
         form = await limited.form(max_files=20, max_fields=20)
         try:
             if "url" in form:
                 raise ApiError(400, "mixed_input", "Send either a url (JSON) or screenshots (multipart), not both.")
-            upload = await read_screenshot_form(form)
+            upload = await read_screenshot_form(form, max_total)
         finally:
             await form.close()
         request_hash = upload.request_hash()

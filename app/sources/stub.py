@@ -6,7 +6,7 @@ Mirrors the needl-ui mock: links containing the safe demo shop id get the
 
 import asyncio
 
-from ..db.repository import JobRecord, utc_now
+from ..db.models import JobRecord, utc_now
 from .base import ProgressFn, RawListing
 from .shopee_url import parse_shopee_link
 

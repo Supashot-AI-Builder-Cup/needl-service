@@ -1,0 +1,20 @@
+# Files not uploaded by `gcloud run deploy --source .` (the upload goes to a Cloud Build bucket).
+# Never upload .env: secrets come from Secret Manager.
+.git/
+.gitignore
+.venv/
+.env
+.env.*
+!.env.example
+data/
+tests/
+scripts/
+deploy/
+__pycache__/
+*.pyc
+.pytest_cache/
+.agents/
+package-lock.json
+README.md
+.dockerignore
+.gcloudignore

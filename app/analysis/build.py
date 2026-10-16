@@ -3,7 +3,7 @@
 import uuid
 
 from ..contract.result import ListingMetadata, ProductCard, SourceMetadata, VerificationResult
-from ..db.repository import utc_now
+from ..db.models import utc_now
 from ..sources.base import RawListing
 from .base import AnalysisOutput
 from .present import build_preview, display_name, format_rupiah

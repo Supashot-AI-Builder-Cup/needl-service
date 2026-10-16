@@ -9,7 +9,7 @@ Handles two shapes:
 from datetime import datetime, timezone
 from typing import Any
 
-from ...db.repository import utc_now
+from ...db.models import utc_now
 from ..base import RawListing, RawReview
 from ..parsing import native_price, parse_count, shopee_image_url
 from ..shopee_url import ShopeeLink, canonical_url
