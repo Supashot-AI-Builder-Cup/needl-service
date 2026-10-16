@@ -13,7 +13,6 @@ from app.config import Settings, load_settings
 from app.db.repository import Repository
 from app.jobs.queue import JobQueue
 from app.jobs.runner import JobRunner, SourceRegistry
-from app.legacy.routes import router as legacy_router
 from app.llm import gemini
 from app.sources.providers.apify import ApifyProvider
 from app.sources.providers.base import ShopeeProvider
@@ -115,7 +114,6 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
         }
 
     app.include_router(verification_jobs_router)
-    app.include_router(legacy_router)
     return app
 
 
