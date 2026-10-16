@@ -16,8 +16,8 @@ Implemented now:
 | `GET /api/v1/verifications/{verification_id}` | Read one saved result                                     |
 | `GET /health`                                 | Service check                                             |
 
-The analyzer is currently a stub, so results contain sample checks. History and
-detail endpoints read saved Firestore results.
+The analyzer supports sample mode for local development and Gemini analysis for
+live listings. History and detail endpoints read saved Firestore results.
 
 ---
 
@@ -56,9 +56,9 @@ cp .env.example .env
 | Variable                                                     | Default                                                                                  | Description                                                                                                                                                                                        |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NEEDL_SOURCE`                                               | `stub`                                                                                   | `stub`: sample listing, no network. `live`: Shopee data providers for links, Gemini Vision for screenshots                                                                                         |
-| `NEEDL_ANALYZER`                                             | `stub`                                                                                   | `stub`: sample checks copied from the needl-ui mock. `real` is not implemented yet                                                                                                                 |
+| `NEEDL_ANALYZER`                                             | `stub`                                                                                   | `stub`: sample checks. `real`: Gemini assesses available listing/review evidence; requires `NEEDL_SOURCE=live` and `GEMINI_API_KEY`                                                                  |
 | `STUB_STEP_MS`                                               | `600`                                                                                    | Delay per step in stub mode, so polling looks like a real run                                                                                                                                      |
-| `GEMINI_API_KEY`                                             | -                                                                                        | Needed for screenshot jobs in live mode                                                                                                                                                            |
+| `GEMINI_API_KEY`                                             | -                                                                                        | Needed for screenshot extraction and `NEEDL_ANALYZER=real`                                                                                                                                         |
 | `GEMINI_MODEL`                                               | `gemini-2.5-flash`                                                                       | Gemini model name                                                                                                                                                                                  |
 | `SHOPEE_PROVIDERS`                                           | `apify,rapidapi`                                                                         | Providers to try, in order. One without credentials is skipped                                                                                                                                     |
 | `SHOPEE_MAX_REVIEWS`                                         | `100`                                                                                    | Reviews fetched per product                                                                                                                                                                        |
@@ -84,6 +84,11 @@ cp .env.example .env
 | `RATE_CREATE_PER_MIN` / `RATE_POLL_PER_MIN`                  | `10` / `60`                                                                              | Per-IP limits for creating and polling jobs                                                                                                                                                        |
 | `TRUST_FORWARDED_FOR`                                        | `false`                                                                                  | Read the client IP from `X-Forwarded-For`. Turn on behind a proxy (Cloud Run)                                                                                                                      |
 | `TRUSTED_PROXY_HOPS`                                         | `1`                                                                                      | Which `X-Forwarded-For` entry is the client, counted from the right. `1` on Cloud Run, `2` behind an external load balancer. Entries further left are sent by the client and can be faked          |
+
+To avoid sample data, configure `.env` with `NEEDL_SOURCE=live` and
+`NEEDL_ANALYZER=real`, then set `GEMINI_API_KEY` and configure a Shopee provider
+(`APIFY_TOKEN` or RapidAPI credentials). Submit a new job after switching modes;
+real mode skips caching because existing Firestore results have no analyzer provenance.
 
 `.env` is git-ignored. Never commit real keys.
 
@@ -221,7 +226,7 @@ needl-service/
 │   ├── db/                    # Firestore repository and JobRecord
 │   ├── jobs/                  # in-memory queue + sweeper, job runner, progress numbers
 │   ├── sources/               # stub, Shopee providers (Apify, RapidAPI), screenshots (Gemini Vision)
-│   ├── analysis/              # stub analyzer, scoring, result builder
+│   ├── analysis/              # Gemini and stub analyzers, scoring, result builder
 │   ├── llm/gemini.py          # Gemini client
 ├── deploy/                    # setup.sh, deploy.sh, smoke.sh, env.example.yaml
 ├── scripts/                   # emulator, seed, test, and Shopee fetch commands
@@ -231,9 +236,9 @@ needl-service/
 ## 8. How a job runs
 
 1. `POST` validates the input, stores the job as `pending` in Firestore and puts it on the in-memory queue (`202`).
-2. A worker claims the job in a Firestore transaction: `processing`, progress 5, one more attempt. A job another live worker is processing is skipped, so it never runs twice. For links it first looks for a saved result of the same product (`cached: true`).
+2. A worker claims the job in a Firestore transaction: `processing`, progress 5, one more attempt. A job another live worker is processing is skipped, so it never runs twice. Stub mode can reuse a fresh result; real mode always fetches and analyzes again.
 3. The source returns one normalized listing: stub data, provider data (Apify, then RapidAPI), or Gemini Vision output. The job gets its `preview` (progress 30).
-4. The analyzer runs its 8 steps (progress 38 to 94, matching the 8 lines of the UI checking log).
+4. The analyzer uses sample checks in stub mode or asks Gemini to assess supplied listing/review evidence in real mode.
 5. The result is validated against the contract, saved, and the job becomes `completed` (100).
 6. A sweeper requeues pending or processing jobs that have not been updated for `JOB_STALE_AFTER_S`. A screenshot job whose files are not on this instance fails with `interrupted`.
 
@@ -302,6 +307,57 @@ PROJECT_ID=my-project deploy/smoke.sh --with-job --link '<real Shopee link>'   #
 timeout 300 s, min 0 / max 1 instances, `deploy/env.yaml`, and each secret that
 has a version.
 
+### GitHub Actions CI/CD
+
+`.github/workflows/ci-cd.yml` runs Firestore-emulator tests on pull requests to
+`main`; pushes to `main` deploy after tests pass. Configure Workload Identity
+Federation once in GCP. Replace `PROJECT_ID` and `ORG/REPO` below:
+
+```bash
+PROJECT_ID=my-project
+ORG_REPO=my-org/my-repo
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+CI_SA="needl-github-deploy@$PROJECT_ID.iam.gserviceaccount.com"
+
+gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com \
+  --project "$PROJECT_ID"
+gcloud iam service-accounts create needl-github-deploy --project "$PROJECT_ID"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$CI_SA" --role=roles/run.admin
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$CI_SA" --role=roles/run.sourceDeveloper
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$CI_SA" --role=roles/serviceusage.serviceUsageConsumer
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$CI_SA" --role=roles/secretmanager.viewer
+gcloud iam service-accounts add-iam-policy-binding \
+  "needl-service@$PROJECT_ID.iam.gserviceaccount.com" --project "$PROJECT_ID" \
+  --member="serviceAccount:$CI_SA" --role=roles/iam.serviceAccountUser
+
+gcloud iam workload-identity-pools create github --project "$PROJECT_ID" \
+  --location=global --display-name=GitHub-Actions
+gcloud iam workload-identity-pools providers create-oidc github \
+  --project "$PROJECT_ID" --location=global --workload-identity-pool=github \
+  --display-name=GitHub --issuer-uri=https://token.actions.githubusercontent.com \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+  --attribute-condition="assertion.repository=='$ORG_REPO'"
+gcloud iam service-accounts add-iam-policy-binding "$CI_SA" --project "$PROJECT_ID" \
+  --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$ORG_REPO"
+```
+
+In GitHub repository **Settings → Secrets and variables → Actions**, add:
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `GCP_PROJECT_ID` | GCP project ID |
+| Variable | `CORS_ORIGINS` | UI origin, for example `https://app.example.com` |
+| Secret | `GCP_WIF_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github` |
+| Secret | `GCP_SERVICE_ACCOUNT` | `needl-github-deploy@PROJECT_ID.iam.gserviceaccount.com` |
+
+Set branch protection on `main` to require the `test` check. Runtime API keys
+remain in GCP Secret Manager; the deploy script attaches enabled secret versions.
+
 ### needl-ui
 
 Build the UI with `VITE_API_URL` set to the Cloud Run URL (`deploy.sh` prints it),
@@ -329,7 +385,7 @@ and put the UI's origin in `CORS_ORIGINS` in `deploy/env.yaml`, then redeploy.
 
 ### Limitations
 
-- The analyzer is still the stub: production results contain the sample checks.
+- Gemini only assesses fields returned by configured Shopee providers. Missing descriptions or reviews limit the checks; suggested stores are empty until a verified comparison source is integrated.
 - The API does not require authentication. Anyone who
   finds the URL can start jobs that cost Apify and Gemini credit. Mitigations: the
   per-IP rate limit, `APIFY_MAX_CHARGE_USD`, one instance, and a budget alert.

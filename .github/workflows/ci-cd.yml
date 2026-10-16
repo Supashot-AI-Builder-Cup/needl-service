@@ -1,0 +1,67 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: cloud-firestore-emulator
+      - run: pip install -r requirements-dev.txt
+      - run: scripts/test.sh
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: asia-southeast2
+      CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Create Cloud Run environment file
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          project = os.environ["PROJECT_ID"]
+          cors = os.environ["CORS_ORIGINS"]
+          if not project or not cors:
+              raise SystemExit("Set GCP_PROJECT_ID and CORS_ORIGINS in GitHub repository variables.")
+          path = Path("deploy/env.example.yaml")
+          text = path.read_text().replace("your-project-id", project)
+          text = text.replace("https://your-ui.example.com", cors)
+          Path("deploy/env.yaml").write_text(text)
+          PY
+      - name: Deploy and smoke-check
+        run: |
+          deploy/deploy.sh
+          SERVICE_URL="$(gcloud --project "$PROJECT_ID" run services describe needl-service --region "$REGION" --format='value(status.url)')" \
+            deploy/smoke.sh

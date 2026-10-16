@@ -101,14 +101,17 @@ class JobRunner:
                 last = value
                 await self.repo.update_job(job.id, progress=min(value, P.SAVING))
 
-        if job.canonical_url and await self._complete_from_cache(job, job.canonical_url):
+        # Older Firestore results have no analyzer provenance; avoid returning sample analysis
+        # for a real-analyzer job until results are versioned by analyzer.
+        use_cache = self.settings.analyzer == "stub"
+        if use_cache and job.canonical_url and await self._complete_from_cache(job, job.canonical_url):
             return
 
         listing = await self.sources.for_job(job).fetch(job, report)
         if job.input_kind == "url" and listing.canonical_url and listing.canonical_url != job.canonical_url:
             # A short link resolved to a product: check the cache again with the real URL.
             await self.repo.update_job(job.id, canonical_url=listing.canonical_url)
-            if await self._complete_from_cache(job, listing.canonical_url):
+            if use_cache and await self._complete_from_cache(job, listing.canonical_url):
                 return
 
         await self.repo.update_job(job.id, preview=_preview_json(listing), progress=P.PREVIEW)

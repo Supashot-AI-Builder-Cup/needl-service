@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.analysis.stub import StubAnalyzer
+from app.analysis.gemini import GeminiAnalyzer
 from app.api.errors import RequestIdMiddleware, UnhandledErrorMiddleware, install_error_handlers
 from app.api.rate_limit import RateLimiter
 from app.api.verifications import router as verifications_router
@@ -61,9 +62,10 @@ def build_providers(settings: Settings, http: httpx.AsyncClient) -> list[ShopeeP
 def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     """`http_transport` lets tests replace outgoing HTTP calls."""
     settings = settings or load_settings()
-    if settings.analyzer == "real":
-        raise RuntimeError("NEEDL_ANALYZER=real is not implemented yet; use stub")
-
+    if settings.analyzer == "real" and settings.source != "live":
+        raise RuntimeError("NEEDL_ANALYZER=real requires NEEDL_SOURCE=live; stub listings are sample data")
+    if settings.analyzer == "real" and not gemini.is_configured():
+        raise RuntimeError("NEEDL_ANALYZER=real requires GEMINI_API_KEY")
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         repo = await Repository.open(settings)
@@ -77,7 +79,11 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
                 link=ShopeeSource(providers, http, settings.shopee_max_reviews),
                 screenshots=ScreenshotSource(),
             )
-        runner = JobRunner(settings, repo, sources, StubAnalyzer(settings.stub_step_ms))
+        if settings.analyzer == "real":
+            analyzer = GeminiAnalyzer()
+        else:
+            analyzer = StubAnalyzer(settings.stub_step_ms)
+        runner = JobRunner(settings, repo, sources, analyzer)
         queue = JobQueue(runner, settings.worker_count, settings.job_stale_after_s, settings.job_sweep_interval_s)
 
         app.state.settings = settings
