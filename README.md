@@ -14,10 +14,7 @@ Implemented now:
 
 Not yet: `GET /api/v1/verifications` and `GET /api/v1/verifications/{id}`
 (the `verifications` table already stores what they need), and the real
-analyzers (`NEEDL_ANALYZER=real`).
-
-The older endpoints `/scrape`, `/analyze` and `/analyze-image` still work and
-will be removed once the v1 flow replaces them.
+analyzer (`NEEDL_ANALYZER=real`).
 
 ---
 
@@ -26,7 +23,6 @@ will be removed once the v1 flow replaces them.
 | Requirement | Version | Notes |
 |---|---|---|
 | Python | 3.11 or newer | the contract models use `StrEnum`; tested on 3.14 |
-| Chromium | via Playwright | only for the legacy `/scrape` and `/analyze` endpoints |
 
 ## 2. Installation
 
@@ -35,7 +31,6 @@ cd needl-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt     # app + test tools
-python -m playwright install chromium    # only for the legacy endpoints
 cp .env.example .env
 ```
 
@@ -46,7 +41,7 @@ cp .env.example .env
 | `NEEDL_SOURCE` | `stub` | `stub`: sample listing, no network. `live`: Shopee data providers for links, Gemini Vision for screenshots |
 | `NEEDL_ANALYZER` | `stub` | `stub`: sample checks copied from the needl-ui mock. `real` is not implemented yet |
 | `STUB_STEP_MS` | `600` | Delay per step in stub mode, so polling looks like a real run |
-| `GEMINI_API_KEY` | - | Needed for screenshots in live mode and for `/analyze` |
+| `GEMINI_API_KEY` | - | Needed for screenshot jobs in live mode |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
 | `SHOPEE_PROVIDERS` | `apify,rapidapi` | Providers to try, in order. One without credentials is skipped |
 | `SHOPEE_MAX_REVIEWS` | `100` | Reviews fetched per product |
@@ -155,7 +150,6 @@ needl-service/
 │   ├── sources/               # stub, Shopee providers (Apify, RapidAPI), screenshots (Gemini Vision)
 │   ├── analysis/              # stub analyzer, scoring, result builder
 │   ├── llm/gemini.py          # Gemini client
-│   └── legacy/                # /scrape, /analyze, /analyze-image
 ├── scripts/                   # shopee_fetch
 └── tests/
 ```
@@ -177,6 +171,5 @@ Risk score = `min(100, 20·critical + 8·major + 3·minor)`; `trust_score = 100 
 |---|---|
 | Link jobs fail with `source_unavailable` | No provider configured or all failed: check `APIFY_TOKEN` / `RAPIDAPI_*`, Apify credit, and the server log |
 | Screenshot jobs fail with `extraction_failed` | Set `GEMINI_API_KEY` in `.env` (live mode) |
-| `Executable doesn't exist ... chromium` (legacy endpoints) | `python -m playwright install chromium` |
 | Browser calls blocked by CORS | Add the UI origin to `CORS_ORIGINS` |
 | Port already in use | Change `--port 8000` |

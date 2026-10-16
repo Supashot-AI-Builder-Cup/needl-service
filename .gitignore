@@ -12,3 +12,6 @@ data/
 
 # Raw provider responses from scripts.shopee_fetch --save (contain reviewer names).
 tests/fixtures/shopee/
+
+# Agents
+.agents
