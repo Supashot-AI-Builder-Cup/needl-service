@@ -1,0 +1,778 @@
+{
+  "risky": {
+    "product": {
+      "name": "Dermalune 10% Niacinamide + Alpha Arbutin Brightening Serum 30ml ORIGINAL",
+      "price": "Rp39.000",
+      "was": "Rp129.000",
+      "rating": "4.9",
+      "ratings": "1,2RB",
+      "sold": {
+        "en": "2.4K",
+        "id": "2,4RB"
+      },
+      "store": "DermaIune 0fficial Shop",
+      "mall": false,
+      "loc": "Kota Medan",
+      "score": 84,
+      "verdict": "high"
+    },
+    "checks": [
+      {
+        "code": "store-name",
+        "section": "store",
+        "severity": "critical",
+        "name": {
+          "en": "Store name",
+          "id": "Nama toko"
+        },
+        "summary": {
+          "en": "Copies the brand name. Capital I replaces l, zero replaces O.",
+          "id": "Meniru nama brand. I kapital ganti l, angka 0 ganti O."
+        },
+        "evidence": [
+          {
+            "kind": "nameCompare",
+            "caption": {
+              "en": "Capital I and lowercase l look alike.",
+              "id": "I kapital dan l kecil terlihat sama."
+            },
+            "official": "Dermalune Official Shop",
+            "store": "DermaIune 0fficial Shop",
+            "facts": [
+              {
+                "label": {
+                  "en": "Shopee Mall badge",
+                  "id": "Badge Shopee Mall"
+                },
+                "value": {
+                  "en": "No",
+                  "id": "Tidak ada"
+                }
+              },
+              {
+                "label": {
+                  "en": "Store joined",
+                  "id": "Toko bergabung"
+                },
+                "value": {
+                  "en": "2 months ago",
+                  "id": "2 bulan lalu"
+                }
+              },
+              {
+                "label": {
+                  "en": "Ships from",
+                  "id": "Dikirim dari"
+                },
+                "value": "Kota Medan (brand: Jakarta)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "risky-terms",
+        "section": "listing",
+        "severity": "critical",
+        "name": {
+          "en": "Risky terms",
+          "id": "Istilah berisiko"
+        },
+        "summary": {
+          "en": "3 terms linked to repacked or unofficial stock.",
+          "id": "3 istilah terkait barang repack atau tidak resmi."
+        },
+        "evidence": [
+          {
+            "kind": "description",
+            "caption": {
+              "en": "From the description",
+              "id": "Dari deskripsi"
+            },
+            "segments": [
+              {
+                "text": "Serum niacinamide 10% ORIGINAL 100% "
+              },
+              {
+                "text": "bukan KW",
+                "flagged": true
+              },
+              {
+                "text": " ✨ Isi 30ml, "
+              },
+              {
+                "text": "share in jar",
+                "flagged": true
+              },
+              {
+                "text": " dari botol besar biar lebih hemat. Dikirim "
+              },
+              {
+                "text": "tanpa box",
+                "flagged": true
+              },
+              {
+                "text": " untuk menekan harga. Ready banyak, langsung kirim!"
+              }
+            ],
+            "terms": [
+              {
+                "term": "bukan KW",
+                "note": {
+                  "en": "Genuine sellers rarely need to say this.",
+                  "id": "Penjual asli jarang menulis ini."
+                }
+              },
+              {
+                "term": "share in jar",
+                "note": {
+                  "en": "Moved to another bottle. Seal and batch can’t be checked.",
+                  "id": "Dipindah ke botol lain. Segel dan batch tak bisa dicek."
+                }
+              },
+              {
+                "term": "tanpa box",
+                "note": {
+                  "en": "No box, so no BPOM number or expiry to check.",
+                  "id": "Tanpa box, jadi tak ada BPOM atau tanggal kedaluwarsa."
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "claims",
+        "section": "listing",
+        "severity": "major",
+        "name": {
+          "en": "Claims",
+          "id": "Klaim"
+        },
+        "summary": {
+          "en": "2 of 3 claims unverified. The BPOM number is for another product.",
+          "id": "2 dari 3 klaim tak terverifikasi. Nomor BPOM milik produk lain."
+        },
+        "evidence": [
+          {
+            "kind": "claims",
+            "claims": [
+              {
+                "name": "BPOM",
+                "detail": {
+                  "en": "NA18230105421 belongs to a Dermalune toner.",
+                  "id": "NA18230105421 milik toner Dermalune."
+                },
+                "status": "critical",
+                "label": {
+                  "en": "Mismatch",
+                  "id": "Tidak cocok"
+                }
+              },
+              {
+                "name": "Halal",
+                "detail": {
+                  "en": "No certificate number.",
+                  "id": "Tidak ada nomor sertifikat."
+                },
+                "status": "major",
+                "label": {
+                  "en": "Not shown",
+                  "id": "Tidak ada"
+                }
+              },
+              {
+                "name": {
+                  "en": "Dermatologically tested",
+                  "id": "Teruji dermatologis"
+                },
+                "detail": {
+                  "en": "No proof given.",
+                  "id": "Tanpa bukti."
+                },
+                "status": "minor",
+                "label": {
+                  "en": "No proof",
+                  "id": "Tanpa bukti"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "fake-reviews",
+        "section": "reviews",
+        "severity": "critical",
+        "name": {
+          "en": "Fake reviews",
+          "id": "Ulasan palsu"
+        },
+        "summary": {
+          "en": "64 five-star reviews in 36 hours. 41 use the same sentence.",
+          "id": "64 ulasan bintang 5 dalam 36 jam. 41 memakai kalimat sama."
+        },
+        "evidence": [
+          {
+            "kind": "histogram",
+            "caption": {
+              "en": "Daily reviews, last 14 days",
+              "id": "Ulasan harian, 14 hari terakhir"
+            },
+            "values": [
+              2,
+              1,
+              3,
+              2,
+              1,
+              2,
+              38,
+              26,
+              3,
+              2,
+              1,
+              2,
+              1,
+              2
+            ],
+            "hot": [
+              6,
+              7
+            ],
+            "range": [
+              "8 Sep",
+              "21 Sep"
+            ]
+          },
+          {
+            "kind": "reviews",
+            "caption": {
+              "en": "3 of 41 matching reviews, minutes apart",
+              "id": "3 dari 41 ulasan serupa, berselang menit"
+            },
+            "reviews": [
+              {
+                "stars": 5,
+                "who": "s*****a, 14 Sep 21:04",
+                "text": "Barang bagus sesuai deskripsi, pengiriman cepat, recommended seller!"
+              },
+              {
+                "stars": 5,
+                "who": "r****7, 14 Sep 21:06",
+                "text": "barang bagus sesuai deskripsi pengiriman cepat recommended"
+              },
+              {
+                "stars": 5,
+                "who": "d*****i, 14 Sep 21:09",
+                "text": "Barang bagus, sesuai deskripsi. Pengiriman cepat. Recommended!!"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "buyer-photos",
+        "section": "reviews",
+        "severity": "major",
+        "name": {
+          "en": "Buyer photos",
+          "id": "Foto pembeli"
+        },
+        "summary": {
+          "en": "7 buyer photos don’t match. Listing photos are copied from the official store.",
+          "id": "7 foto pembeli tidak cocok. Foto listing disalin dari toko resmi."
+        },
+        "evidence": [
+          {
+            "kind": "photoPair",
+            "listingCaption": {
+              "en": "Listing photo",
+              "id": "Foto listing"
+            },
+            "buyerCaption": {
+              "en": "Buyer photo, 17 Sep",
+              "id": "Foto pembeli, 17 Sep"
+            },
+            "buyerVariant": {
+              "dropper": "#2A2A2A",
+              "holo": false,
+              "thin": true
+            },
+            "diffs": [
+              {
+                "en": "No hologram sticker",
+                "id": "Tanpa stiker hologram"
+              },
+              {
+                "en": "Black dropper, not white",
+                "id": "Pipet hitam, bukan putih"
+              },
+              {
+                "en": "Thinner label text",
+                "id": "Huruf label lebih tipis"
+              }
+            ],
+            "facts": [
+              {
+                "label": {
+                  "en": "Listing photos found on the official store",
+                  "id": "Foto listing ada di toko resmi"
+                },
+                "value": {
+                  "en": "4 of 5",
+                  "id": "4 dari 5"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "safety-complaints",
+        "section": "reviews",
+        "severity": "major",
+        "name": {
+          "en": "Safety complaints",
+          "id": "Keluhan keamanan"
+        },
+        "summary": {
+          "en": "38 low-star reviews. Top complaint: skin irritation.",
+          "id": "38 ulasan bintang rendah. Keluhan utama: iritasi kulit."
+        },
+        "evidence": [
+          {
+            "kind": "complaints",
+            "rows": [
+              {
+                "category": {
+                  "en": "Irritation or allergy",
+                  "id": "Iritasi/alergi"
+                },
+                "count": 14
+              },
+              {
+                "category": {
+                  "en": "Texture, smell, or color",
+                  "id": "Tekstur/bau/warna beda"
+                },
+                "count": 11
+              },
+              {
+                "category": {
+                  "en": "Broken seal",
+                  "id": "Segel rusak"
+                },
+                "count": 6
+              },
+              {
+                "category": {
+                  "en": "Wrong item",
+                  "id": "Barang beda"
+                },
+                "count": 4
+              },
+              {
+                "category": {
+                  "en": "Expired",
+                  "id": "Kedaluwarsa"
+                },
+                "count": 3
+              },
+              {
+                "category": {
+                  "en": "Digestive issues",
+                  "id": "Keluhan pencernaan"
+                },
+                "count": 0
+              }
+            ],
+            "quote": {
+              "text": "Pakai 2 hari langsung merah dan perih, padahal biasanya cocok sama serum ini.",
+              "caption": {
+                "en": "1-star review, 19 Sep",
+                "id": "Ulasan bintang 1, 19 Sep"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "stores": [
+      {
+        "name": "Dermalune Official Shop",
+        "badge": "official",
+        "price": "Rp129.000",
+        "rating": "4.9",
+        "sold": {
+          "en": "18K sold",
+          "id": "18RB terjual"
+        },
+        "why": {
+          "en": "The brand’s own Shopee Mall store.",
+          "id": "Toko brand di Shopee Mall."
+        },
+        "link": "https://shopee.co.id/Dermalune-Niacinamide-Brightening-Serum-30ml-Official-i.218334561.24019837712",
+        "logo": "dermalune"
+      },
+      {
+        "name": "Glowmart Indonesia",
+        "badge": "Star+",
+        "price": "Rp119.000",
+        "rating": "4.8",
+        "sold": {
+          "en": "6.1K sold",
+          "id": "6,1RB terjual"
+        },
+        "why": {
+          "en": "Normal reviews, matching BPOM. Backup if official is out of stock.",
+          "id": "Ulasan wajar, BPOM cocok. Cadangan jika toko resmi habis."
+        },
+        "link": "https://shopee.co.id/glowmart.indonesia",
+        "logo": "glowmart"
+      },
+      {
+        "name": "Kulitku Beauty",
+        "badge": "Star",
+        "price": "Rp124.000",
+        "rating": "4.8",
+        "sold": {
+          "en": "3.4K sold",
+          "id": "3,4RB terjual"
+        },
+        "why": {
+          "en": "No risky terms. Buyer photos match.",
+          "id": "Tanpa istilah berisiko. Foto pembeli cocok."
+        },
+        "link": "https://shopee.co.id/kulitku.beauty",
+        "logo": "kulitku"
+      }
+    ],
+    "questions": [
+      {
+        "id": "Kak, boleh minta foto barang aslinya dengan tanggal hari ini?",
+        "en": "Can you send a photo of the actual item with today’s date?"
+      },
+      {
+        "id": "Kak, ini repack dari botol besar? Aslinya dari mana?",
+        "en": "Is this repacked from a bigger bottle? Where is it from?"
+      },
+      {
+        "id": "Kak, nomor BPOM di kemasannya berapa?",
+        "en": "What’s the BPOM number on the packaging?"
+      },
+      {
+        "id": "Kak, segelnya utuh dan ada stiker hologram di box?",
+        "en": "Is the seal intact, with a hologram sticker on the box?"
+      },
+      {
+        "id": "Kak, tanggal kedaluwarsa stok yang dikirim kapan?",
+        "en": "What’s the expiry date on the stock you’ll send?"
+      }
+    ]
+  },
+  "safe": {
+    "product": {
+      "name": "Dermalune Niacinamide Brightening Serum 30ml",
+      "price": "Rp129.000",
+      "was": null,
+      "rating": "4.9",
+      "ratings": "9,8RB",
+      "sold": {
+        "en": "18K",
+        "id": "18RB"
+      },
+      "store": "Dermalune Official Shop",
+      "mall": true,
+      "loc": "Jakarta Barat",
+      "score": 9,
+      "verdict": "safe"
+    },
+    "checks": [
+      {
+        "code": "store-name",
+        "section": "store",
+        "severity": "pass",
+        "name": {
+          "en": "Store name",
+          "id": "Nama toko"
+        },
+        "summary": {
+          "en": "Official brand store with the Shopee Mall badge.",
+          "id": "Toko resmi brand dengan badge Shopee Mall."
+        },
+        "evidence": [
+          {
+            "kind": "nameCompare",
+            "official": "Dermalune Official Shop",
+            "store": "Dermalune Official Shop",
+            "facts": [
+              {
+                "label": {
+                  "en": "Shopee Mall badge",
+                  "id": "Badge Shopee Mall"
+                },
+                "value": {
+                  "en": "Yes",
+                  "id": "Ada"
+                }
+              },
+              {
+                "label": {
+                  "en": "Store joined",
+                  "id": "Toko bergabung"
+                },
+                "value": {
+                  "en": "4 years ago",
+                  "id": "4 tahun lalu"
+                }
+              },
+              {
+                "label": {
+                  "en": "Ships from",
+                  "id": "Dikirim dari"
+                },
+                "value": "Jakarta Barat"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "risky-terms",
+        "section": "listing",
+        "severity": "pass",
+        "name": {
+          "en": "Risky terms",
+          "id": "Istilah berisiko"
+        },
+        "summary": {
+          "en": "No risky terms found.",
+          "id": "Tidak ada istilah berisiko."
+        },
+        "evidence": [
+          {
+            "kind": "description",
+            "caption": {
+              "en": "From the description",
+              "id": "Dari deskripsi"
+            },
+            "segments": [
+              {
+                "text": "Dermalune Niacinamide Brightening Serum 30ml. Diformulasikan dengan 10% niacinamide dan alpha arbutin untuk membantu meratakan warna kulit. Terdaftar BPOM NA18230107788. Bersertifikat Halal."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "claims",
+        "section": "listing",
+        "severity": "minor",
+        "name": {
+          "en": "Claims",
+          "id": "Klaim"
+        },
+        "summary": {
+          "en": "BPOM and Halal verified. “Dermatologically tested” has no proof.",
+          "id": "BPOM dan Halal terverifikasi. “Teruji dermatologis” tanpa bukti."
+        },
+        "evidence": [
+          {
+            "kind": "claims",
+            "claims": [
+              {
+                "name": "BPOM",
+                "detail": {
+                  "en": "NA18230107788 matches this serum.",
+                  "id": "NA18230107788 cocok dengan serum ini."
+                },
+                "status": "pass",
+                "label": {
+                  "en": "Verified",
+                  "id": "Terverifikasi"
+                }
+              },
+              {
+                "name": "Halal",
+                "detail": {
+                  "en": "Certificate ID00410000123450324 is valid.",
+                  "id": "Sertifikat ID00410000123450324 berlaku."
+                },
+                "status": "pass",
+                "label": {
+                  "en": "Verified",
+                  "id": "Terverifikasi"
+                }
+              },
+              {
+                "name": {
+                  "en": "Dermatologically tested",
+                  "id": "Teruji dermatologis"
+                },
+                "detail": {
+                  "en": "Marketing claim. Nothing to verify.",
+                  "id": "Klaim pemasaran. Tak ada yang bisa dicek."
+                },
+                "status": "minor",
+                "label": {
+                  "en": "No proof",
+                  "id": "Tanpa bukti"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "code": "fake-reviews",
+        "section": "reviews",
+        "severity": "pass",
+        "name": {
+          "en": "Fake reviews",
+          "id": "Ulasan palsu"
+        },
+        "summary": {
+          "en": "Steady pace, varied wording.",
+          "id": "Ritme wajar, kalimat beragam."
+        },
+        "evidence": [
+          {
+            "kind": "histogram",
+            "caption": {
+              "en": "Daily reviews, last 14 days",
+              "id": "Ulasan harian, 14 hari terakhir"
+            },
+            "values": [
+              22,
+              18,
+              25,
+              20,
+              27,
+              19,
+              23,
+              24,
+              21,
+              26,
+              20,
+              22,
+              25,
+              23
+            ],
+            "hot": [],
+            "range": [
+              "8 Sep",
+              "21 Sep"
+            ]
+          }
+        ]
+      },
+      {
+        "code": "buyer-photos",
+        "section": "reviews",
+        "severity": "pass",
+        "name": {
+          "en": "Buyer photos",
+          "id": "Foto pembeli"
+        },
+        "summary": {
+          "en": "Buyer photos match. Listing photos are original.",
+          "id": "Foto pembeli cocok. Foto listing asli."
+        },
+        "evidence": [
+          {
+            "kind": "photoPair",
+            "listingCaption": {
+              "en": "Listing photo",
+              "id": "Foto listing"
+            },
+            "buyerCaption": {
+              "en": "Buyer photo, 18 Sep",
+              "id": "Foto pembeli, 18 Sep"
+            }
+          }
+        ]
+      },
+      {
+        "code": "safety-complaints",
+        "section": "reviews",
+        "severity": "pass",
+        "name": {
+          "en": "Safety complaints",
+          "id": "Keluhan keamanan"
+        },
+        "summary": {
+          "en": "9 low-star reviews, mostly delivery. 2 about the product.",
+          "id": "9 ulasan bintang rendah, kebanyakan soal pengiriman. 2 soal produk."
+        },
+        "evidence": [
+          {
+            "kind": "complaints",
+            "rows": [
+              {
+                "category": {
+                  "en": "Irritation or allergy",
+                  "id": "Iritasi/alergi"
+                },
+                "count": 1
+              },
+              {
+                "category": {
+                  "en": "Texture, smell, or color",
+                  "id": "Tekstur/bau/warna beda"
+                },
+                "count": 1
+              },
+              {
+                "category": {
+                  "en": "Broken seal",
+                  "id": "Segel rusak"
+                },
+                "count": 0
+              },
+              {
+                "category": {
+                  "en": "Wrong item",
+                  "id": "Barang beda"
+                },
+                "count": 0
+              },
+              {
+                "category": {
+                  "en": "Expired",
+                  "id": "Kedaluwarsa"
+                },
+                "count": 0
+              },
+              {
+                "category": {
+                  "en": "Digestive issues",
+                  "id": "Keluhan pencernaan"
+                },
+                "count": 0
+              }
+            ],
+            "note": {
+              "en": "Other 7: delivery time.",
+              "id": "7 lainnya: waktu kirim."
+            }
+          }
+        ]
+      }
+    ],
+    "stores": [],
+    "questions": [
+      {
+        "id": "Kak, nomor BPOM di kemasannya berapa?",
+        "en": "What’s the BPOM number on the packaging?"
+      },
+      {
+        "id": "Kak, segelnya utuh dan ada stiker hologram di box?",
+        "en": "Is the seal intact, with a hologram sticker on the box?"
+      },
+      {
+        "id": "Kak, tanggal kedaluwarsa stok yang dikirim kapan?",
+        "en": "What’s the expiry date on the stock you’ll send?"
+      }
+    ]
+  }
+}

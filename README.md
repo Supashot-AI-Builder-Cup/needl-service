@@ -1,369 +1,182 @@
-# Backend - E-commerce Scraper API
+# needl-service
 
-FastAPI + Playwright service that scrapes e-commerce product pages and returns
-structured data (product name, merchant, price, rating, reviews, images).
-Optionally sends the scraped content to Gemini (`/analyze`) with an optional
-custom `prompt` for AI-based extraction.
+FastAPI backend for needl. It runs verification jobs for a Shopee listing, from
+a product link or from screenshots, and returns the result the needl-ui result
+page renders. The API follows `API_Contract.md` (v1).
+
+Implemented now:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/verification-jobs` | Start a job from a link (JSON) or screenshots (multipart) |
+| `GET /api/v1/verification-jobs/{job_id}` | Poll progress, preview and the final result |
+| `GET /health` | Service check |
+
+Not yet: `GET /api/v1/verifications` and `GET /api/v1/verifications/{id}`
+(the `verifications` table already stores what they need), and the real
+analyzers (`NEEDL_ANALYZER=real`).
+
+The older endpoints `/scrape`, `/analyze` and `/analyze-image` still work and
+will be removed once the v1 flow replaces them.
 
 ---
 
-## 1. Requirements (engine / software)
+## 1. Requirements
 
 | Requirement | Version | Notes |
 |---|---|---|
-| Python | 3.10 - 3.13 | tested on 3.13.5 |
-| pip | >= 23 | comes with Python |
-| Node.js | not required | Playwright Python ships its own driver |
-| Chromium browser | installed via Playwright | ~180 MB, downloaded by `playwright install chromium` |
-| OS | macOS / Linux / Windows | tested on macOS (arm64) |
-
-Python packages (installed from `requirements.txt`):
-
-| Package | Version | Purpose |
-|---|---|---|
-| fastapi | >=0.115,<1.0 | HTTP API |
-| uvicorn[standard] | >=0.30 | ASGI server |
-| playwright | >=1.44 | async browser automation |
-| playwright-stealth | >=2.0.3 | anti bot-detection evasions |
-| pydantic | >=2.7 | request validation |
-| google-genai | >=1.0.0 | Gemini model client |
-| python-dotenv | >=1.0 | load `.env` config |
-| python-multipart | >=0.0.9 | multipart image upload parsing |
-
-> Windows/Linux may need extra system libs for Chromium. If Chromium fails to
-> start, run `playwright install-deps chromium` (Linux) and retry.
-
----
+| Python | 3.11 or newer | the contract models use `StrEnum`; tested on 3.14 |
+| Chromium | via Playwright | only for the legacy `/scrape` and `/analyze` endpoints |
 
 ## 2. Installation
 
 ```bash
-cd backend
-
-# 1. create virtual environment
+cd needl-service
 python3 -m venv .venv
-
-# 2. activate it
-source .venv/bin/activate        # macOS / Linux
-# .venv\Scripts\activate         # Windows
-
-# 3. install python dependencies
-pip install -r requirements.txt
-
-# 4. download the Chromium engine used by Playwright
-python -m playwright install chromium
-
-# 5. create your env file and put the Gemini API key in it
+source .venv/bin/activate
+pip install -r requirements-dev.txt     # app + test tools
+python -m playwright install chromium    # only for the legacy endpoints
 cp .env.example .env
-# then edit .env and set GEMINI_API_KEY=...
 ```
 
-### Environment variables (`.env`)
+## 3. Configuration (`.env`)
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| GEMINI_API_KEY | for `/analyze` | - | Google AI Studio API key |
-| GEMINI_MODEL | no | gemini-2.5-flash | Gemini model name |
+| Variable | Default | Description |
+|---|---|---|
+| `NEEDL_SOURCE` | `stub` | `stub`: sample listing, no network. `live`: Shopee data providers for links, Gemini Vision for screenshots |
+| `NEEDL_ANALYZER` | `stub` | `stub`: sample checks copied from the needl-ui mock. `real` is not implemented yet |
+| `STUB_STEP_MS` | `600` | Delay per step in stub mode, so polling looks like a real run |
+| `GEMINI_API_KEY` | - | Needed for screenshots in live mode and for `/analyze` |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
+| `SHOPEE_PROVIDERS` | `apify,rapidapi` | Providers to try, in order. One without credentials is skipped |
+| `SHOPEE_MAX_REVIEWS` | `100` | Reviews fetched per product |
+| `APIFY_TOKEN` | - | Apify API token (Settings, API & Integrations in the Apify console) |
+| `APIFY_DETAIL_ACTOR` / `APIFY_REVIEWS_ACTOR` | `zen-studio~shopee-product-detail-scraper` / `zen-studio~shopee-product-reviews-scraper` | Actors used for product data and reviews |
+| `APIFY_TIMEOUT_S` | `120` | Longest wait for one actor run |
+| `APIFY_MAX_CHARGE_USD` | - | Optional spending cap per actor run |
+| `RAPIDAPI_KEY` | - | RapidAPI key |
+| `RAPIDAPI_SHOPEE_DETAIL_URL` / `RAPIDAPI_SHOPEE_REVIEWS_URL` | - | Endpoint templates of the RapidAPI Shopee API, see section 5 |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated origins allowed to call the API |
+| `DB_PATH` | `data/needl.db` | SQLite database |
+| `UPLOAD_DIR` | `data/uploads` | Screenshots, deleted when their job finishes |
+| `WORKER_COUNT` | `2` | Jobs processed at the same time |
+| `JOB_TIMEOUT_S` | `180` | A job fails with `timeout` after this |
+| `CACHE_TTL_S` | `21600` | A product checked within this time is answered from the saved result |
+| `RATE_CREATE_PER_MIN` / `RATE_POLL_PER_MIN` | `10` / `60` | Per-IP limits for creating and polling jobs |
 
 `.env` is git-ignored. Never commit real keys.
 
----
-
-## 3. Run the server
+## 4. Run
 
 ```bash
-# from the backend folder, with .venv activated
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn main:app --port 8000 --reload
 ```
 
-Open the interactive docs: http://localhost:8000/docs
-
----
-
-## 4. API reference
-
-### `GET /health`
-
-Returns `{"status": "ok", "gemini_configured": true|false}`.
-
-### `POST /scrape` (raw extraction, no AI)
-
-Request body:
-
-```json
-{
-  "url": "https://scrapeme.live/shop/Bulbasaur/",
-  "headless": true,
-  "scroll": true,
-  "timeout_ms": 30000
-}
-```
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| url | string | required | product page URL (http/https only) |
-| headless | bool | true | run browser headless |
-| scroll | bool | true | auto-scroll to trigger lazy load |
-| timeout_ms | int | 30000 | navigation timeout (3000-120000) |
-
-Success response:
-
-```json
-{
-  "status": "success",
-  "data": {
-    "url": "https://scrapeme.live/shop/Bulbasaur/",
-    "requested_url": "https://scrapeme.live/shop/Bulbasaur/",
-    "source_site": "scrapeme.live",
-    "product_name": "Bulbasaur",
-    "merchant_name": "ScrapeMe",
-    "sales_count": null,
-    "price": "63.00",
-    "price_value": 63.0,
-    "currency": "GBP",
-    "rating": null,
-    "review_count": null,
-    "reviews": [
-      { "author": "Andi", "rating": 5.0, "date": "2026-01-02", "text": "Aroma mantap." }
-    ],
-    "images": ["https://scrapeme.live/wp-content/uploads/2018/08/001.png"],
-    "scraped_at": "2026-10-13T02:47:00Z",
-    "http_status": 200
-  }
-}
-```
-
-Error responses:
-
-| Code | Meaning |
-|---|---|
-| 400 | invalid or disallowed URL (bad scheme / SSRF host) |
-| 502 | page load or scrape failed |
-| 504 | scrape exceeded total timeout |
-
-### `POST /analyze` (scrape + Gemini)
-
-Scrapes the page, then asks Gemini to read it and produce a **product report**.
-The default output is a JSON object with the product fields plus `overview`,
-`key_benefits`, `price_range_indonesia`, and a Markdown `report`. Use the optional
-`prompt` field to add a custom instruction (it is appended to the default
-instruction, so the JSON keys stay the same).
-
-Request body:
-
-```json
-{
-  "url": "https://www.ebay.com/itm/123456",
-  "prompt": "Fokus ke review dan kisaran harga di Indonesia.",
-  "headless": true,
-  "scroll": true,
-  "timeout_ms": 30000
-}
-```
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| url | string | required | product page URL (http/https only) |
-| prompt | string | null | optional additional instruction for Gemini |
-| headless | bool | true | run browser headless |
-| scroll | bool | true | auto-scroll to trigger lazy load |
-| timeout_ms | int | 30000 | navigation timeout (3000-120000) |
-
-Success response:
-
-```json
-{
-  "status": "success",
-  "source": { "url": "https://www.ebay.com/itm/123456", "source_site": "ebay.com" },
-  "data": {
-    "product_name": "La Roche Posay Cicaplast Baume B5+ - 40ml",
-    "price": "IDR 322,561",
-    "price_value": 322561,
-    "currency": "IDR",
-    "merchant_name": "eBay",
-    "rating": 4.8,
-    "review_count": "62,3k+",
-    "overview": "Rich, multi-purpose soothing balm that repairs and protects the skin barrier...",
-    "key_benefits": [
-      { "title": "Skin Repair", "description": "Accelerates the skin's natural recovery process..." },
-      { "title": "Key Ingredients", "description": "5% Panthenol (Vitamin B5) and Madecassoside..." },
-      { "title": "Versatility", "description": "Spot treatment for dry patches, minor burns, chapped lips..." },
-      { "title": "Who it is for", "description": "Hypoallergenic, fragrance-free, suitable for all skin types." }
-    ],
-    "price_range_indonesia": "Rp 240.000 - Rp 340.000 depending on seller and promotions.",
-    "reviews": [],
-    "images": ["https://i.ebayimg.com/..."],
-    "report": "### La Roche Posay Cicaplast Baume B5+ - 40ml\nIDR 322,561\n\n..." 
-  }
-}
-```
-
-Error responses:
-
-| Code | Meaning |
-|---|---|
-| 400 | invalid or disallowed URL |
-| 502 | scrape failed, or Gemini call failed |
-| 503 | `GEMINI_API_KEY` not set / google-genai missing |
-| 504 | scrape exceeded total timeout |
-
-### `POST /analyze-image` (image + Gemini vision)
-
-Upload one or more images (`multipart/form-data`) of a product page and/or its
-reviews. Gemini Vision reads them and returns a product summary plus a review
-analysis grouped by star rating, including complaints (keluhan) and suggestions
-(saran). Optional `prompt` adds a custom instruction.
+Run a **single process** (no `--workers`): the job queue lives in memory. Jobs
+left pending or processing when the server stops are picked up again on the
+next start (at most `JOB_MAX_ATTEMPTS`, default 2, then they fail with
+`interrupted`). Interactive docs: http://localhost:8000/docs
 
 ```bash
-curl -X POST http://localhost:8000/analyze-image \
-  -F "files=@/tmp/product.png;type=image/png" \
-  -F "prompt=Fokus ke review, beri saran dan keluhan dalam Bahasa Indonesia."
+# link mode
+curl -i -X POST http://localhost:8000/api/v1/verification-jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://shopee.co.id/Dermalune-10-Niacinamide-Alpha-Arbutin-Brightening-Serum-30ml-Original-i.773019284.25810442671","locale":"id-ID"}'
+
+# screenshot mode
+curl -i -X POST http://localhost:8000/api/v1/verification-jobs \
+  -F 'product=@./product.png' -F 'store=@./store.png' -F 'locale=id-ID'
+
+# poll (use the id from the response)
+curl http://localhost:8000/api/v1/verification-jobs/<job_id>
 ```
 
-Form fields:
+In stub mode, links with shop id `218334561` get the "safe" sample and
+everything else gets the "risky" sample, like the needl-ui mock.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| files | file[] | yes | 1-6 images (max 8 MB each, `image/*`) |
-| prompt | string | no | optional additional instruction |
+## 5. Shopee links in live mode
 
-Success response:
+Shopee sends browsers without a login to a "Masuk Diperlukan" page, so links
+are read through third-party data providers instead of our own scraper. They
+are tried in `SHOPEE_PROVIDERS` order; when one fails, the next one is used.
 
-```json
-{
-  "status": "success",
-  "data": {
-    "product_name": "Tokopedia",
-    "product_summary": "Marketplace jual beli barang daring di Indonesia.",
-    "overall_rating": 1.5,
-    "review_count": "167",
-    "sentiment": "negative",
-    "rating_breakdown": [
-      {
-        "stars": 1,
-        "count": null,
-        "summary": "Keluhan soal refund dan pengiriman.",
-        "pros": [],
-        "complaints": ["Barang tidak diterima", "Refund lambat"]
-      }
-    ],
-    "reviews": [
-      { "author": null, "rating": 1, "text": "...", "sentiment": "negative", "complaints": ["..."], "suggestions": ["..."] }
-    ],
-    "top_complaints": ["Layanan pelanggan tidak membantu", "Refund lambat"],
-    "suggestions": ["Percepat proses refund", "Perbaiki layanan pelanggan"],
-    "report": "### Ringkasan Produk\n...\n\n### Ulasan Berdasarkan Rating\n..."
-  }
-}
-```
+| Provider | What it calls | Cost (Oct 2026) |
+|---|---|---|
+| Apify (main) | Actor `zen-studio/shopee-product-detail-scraper` for the product and `zen-studio/shopee-product-reviews-scraper` for reviews, both at once through `run-sync-get-dataset-items` | about $4.99 per 1,000 products ($7.99 after 21 Oct 2026) and $3.99 per 1,000 reviews |
+| RapidAPI (backup) | The Shopee API you subscribe to, configured as URL templates | depends on the API's plan |
 
-Error responses:
+Reviews are optional: when the reviews run fails, the job still completes
+with product data. The reviews actor fails often (about 60% of public runs in
+the 30 days before 16 Oct 2026), so expect some jobs without reviews.
 
-| Code | Meaning |
-|---|---|
-| 400 | no image / unsupported type / too large / more than 6 images |
-| 502 | Gemini call failed |
-| 503 | `GEMINI_API_KEY` not set / google-genai missing |
-
----
-
-## 5. Testing the API
-
-### With curl
+RapidAPI Shopee APIs differ in paths and parameters. Copy the endpoint from
+the API's Code Snippets tab and put placeholders where the ids go:
 
 ```bash
-# health check
-curl http://localhost:8000/health
-
-# scrape a product
-curl -X POST http://localhost:8000/scrape \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://scrapeme.live/shop/Bulbasaur/"}'
-
-# pretty print
-curl -s -X POST http://localhost:8000/scrape \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html"}' \
-  | python -m json.tool
-
-# AI analyze (needs GEMINI_API_KEY in .env)
-curl -X POST http://localhost:8000/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://scrapeme.live/shop/Bulbasaur/"}'
-
-# AI analyze with a custom prompt
-curl -X POST http://localhost:8000/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"url":"https://scrapeme.live/shop/Bulbasaur/","prompt":"Ambil semua review dan rating saja"}'
-
-# AI analyze from an image (product/review screenshot)
-curl -X POST http://localhost:8000/analyze-image \
-  -F "files=@/tmp/product.png;type=image/png" \
-  -F "prompt=Ringkas summary dan review, beri saran dan keluhan"
+RAPIDAPI_KEY=...
+RAPIDAPI_SHOPEE_DETAIL_URL=https://<host>.p.rapidapi.com/<path>?shop_id={shop_id}&item_id={item_id}
+RAPIDAPI_SHOPEE_REVIEWS_URL=https://<host>.p.rapidapi.com/<path>?shop_id={shop_id}&item_id={item_id}&limit={limit}
 ```
 
-### With the built-in docs UI
+Placeholders: `{shop_id}`, `{item_id}`, `{url}` (URL-encoded product link),
+`{limit}`. The `x-rapidapi-host` header is taken from the URL. Responses are
+mapped by `app/sources/providers/normalize.py`, which reads Shopee's own JSON
+shape (`data.item`, prices times 100000) and camelCase records.
 
-1. Open http://localhost:8000/docs
-2. Expand `POST /scrape`, `POST /analyze`, or `POST /analyze-image` -> `Try it out`
-3. Paste a product URL (or choose an image) -> `Execute`
-
-### Direct scraper test (without the server)
+Check a provider with a real product before using it:
 
 ```bash
-python -c "import asyncio, json, scraper; \
-print(json.dumps(asyncio.run(scraper.scrape_ecommerce_data('https://scrapeme.live/shop/Bulbasaur/')), indent=2))"
+python -m scripts.shopee_fetch 'https://shopee.co.id/...-i.<shop_id>.<item_id>'
+python -m scripts.shopee_fetch --save '<url>'   # also writes raw JSON to tests/fixtures/shopee/
 ```
 
----
+Each run costs one product and up to `SHOPEE_MAX_REVIEWS` reviews per provider.
+Short links (`shp.ee`) are followed only through Shopee hosts.
 
-## 6. Project structure
+## 6. Tests
 
-```
-backend/
-├── main.py            # FastAPI app: /scrape, /analyze, /analyze-image, /health, CORS
-├── scraper.py         # Playwright scraper + extraction/merge logic
-├── gemini.py          # Gemini client: text (URL) + vision (image) analysis
-├── requirements.txt   # python dependencies
-├── .env.example       # env template (copy to .env)
-├── README.md          # this file
-└── .venv/             # local virtual environment (not committed)
+```bash
+python -m pytest
 ```
 
----
+Tests run in stub mode with a temporary database and no network.
 
-## 7. How it works
+## 7. Project structure
 
-`/scrape` extraction is layered, most reliable source first:
+```
+needl-service/
+├── main.py                    # create_app(): lifespan, middleware, routers
+├── app/
+│   ├── config.py              # settings from .env
+│   ├── api/                   # routes, error envelope + request id, rate limit
+│   ├── contract/              # Pydantic models from API_Contract.md
+│   ├── db/                    # SQLite schema and repository
+│   ├── jobs/                  # in-memory queue, job runner, progress numbers
+│   ├── sources/               # stub, Shopee providers (Apify, RapidAPI), screenshots (Gemini Vision)
+│   ├── analysis/              # stub analyzer, scoring, result builder
+│   ├── llm/gemini.py          # Gemini client
+│   └── legacy/                # /scrape, /analyze, /analyze-image
+├── scripts/                   # shopee_fetch
+└── tests/
+```
 
-1. JSON-LD (`schema.org/Product`): name, brand/seller, offers, rating, reviews, images.
-2. OpenGraph / product meta tags: title, image, price, currency, site name.
-3. DOM heuristics: generic and known `data-testid`/class selectors.
+## 8. How a job runs
 
-`/analyze` uses the same Playwright fetch to get the page text/meta/images, then
-sends that content to Gemini together with your optional `prompt`. Gemini returns
-structured JSON. This is more robust on sites that block direct DOM scraping.
+1. `POST` validates the input, stores the job as `pending` in SQLite and puts it on the queue (`202`).
+2. A worker marks it `processing` (progress 5). For links it first looks for a saved result of the same product (`cached: true`).
+3. The source returns one normalized listing: stub data, provider data (Apify, then RapidAPI), or Gemini Vision output. The job gets its `preview` (progress 30).
+4. The analyzer runs its 8 steps (progress 38 to 94, matching the 8 lines of the UI checking log).
+5. The result is validated against the contract, saved, and the job becomes `completed` (100).
 
-The browser blocks non-essential resources (CSS, fonts, media, beacons), applies
-stealth evasions, uses an Indonesian locale/timezone, and auto-scrolls to trigger
-lazy-loaded reviews and images. Missing fields return `null` instead of failing.
+Risk score = `min(100, 20·critical + 8·major + 3·minor)`; `trust_score = 100 - score`.
+`risk_level` is `safe` below 33, `suspicious` from 33, `fraud` from 67.
 
----
-
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `Executable doesn't exist ... chromium` | run `python -m playwright install chromium` |
-| Chromium crashes on Linux | run `playwright install-deps chromium`, add `--no-sandbox` (already set) |
-| `502 scrape failed` | site blocked the request or URL is wrong; try `headless:false` or raise `timeout_ms` |
-| `503 GEMINI_API_KEY is not set` | create `.env` from `.env.example` and set the key |
-| `502 gemini failed: API key not valid` | wrong/expired Gemini API key |
-| `400 invalid or disallowed url` | only public http/https URLs are allowed (SSRF guard) |
-| Port already in use | change `--port 8000` to another port |
-
----
-
-## 9. Not included (per project plan)
-
-- Database persistence (e.g. Firebase)
+| Link jobs fail with `source_unavailable` | No provider configured or all failed: check `APIFY_TOKEN` / `RAPIDAPI_*`, Apify credit, and the server log |
+| Screenshot jobs fail with `extraction_failed` | Set `GEMINI_API_KEY` in `.env` (live mode) |
+| `Executable doesn't exist ... chromium` (legacy endpoints) | `python -m playwright install chromium` |
+| Browser calls blocked by CORS | Add the UI origin to `CORS_ORIGINS` |
+| Port already in use | Change `--port 8000` |
