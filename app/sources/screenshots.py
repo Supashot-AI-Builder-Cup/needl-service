@@ -5,13 +5,15 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ..db.repository import JobRecord, utc_now
+from ..db.models import JobRecord, utc_now
 from ..llm import gemini
 from .base import ProgressFn, RawListing, RawReview, SourceError
 from .parsing import parse_count, parse_rupiah
 from .screenshot_files import MIME
 
 log = logging.getLogger("needl.sources")
+
+UNAVAILABLE = "Screenshots cannot be read right now. Try again later."
 
 SLOT_HINTS = {
     "product": "product page: main photo, product name, price",
@@ -69,14 +71,20 @@ class ScreenshotSource:
             add(f"Extra screenshot named {extra['name']!r}:", extra["file"])
 
         await report(10)
+        # service_busy: the problem is on our side (not configured, API or network error).
+        # extraction_failed: Gemini answered, but not with readable listing data.
         try:
             data = await gemini.generate_structured(contents, ScreenshotExtraction)
         except RuntimeError:
             log.error("screenshot job %s: Gemini is not configured (GEMINI_API_KEY)", job.id)
-            raise SourceError("extraction_failed", "Screenshots cannot be read right now. Try again later.")
-        except Exception:
-            log.exception("screenshot job %s: Gemini extraction failed", job.id)
+            raise SourceError("service_busy", UNAVAILABLE)
+        except ValueError:
+            # Includes pydantic.ValidationError: the answer did not match the schema.
+            log.warning("screenshot job %s: Gemini answer did not match the schema", job.id, exc_info=True)
             raise SourceError("extraction_failed", "Screenshots cannot be read. Make sure product and store names are visible.")
+        except Exception:
+            log.exception("screenshot job %s: Gemini request failed", job.id)
+            raise SourceError("service_busy", UNAVAILABLE)
         await report(25)
 
         if not data.product_name:

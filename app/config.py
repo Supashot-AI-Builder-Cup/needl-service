@@ -37,9 +37,14 @@ def _env_list(name: str, default: str) -> list[str]:
     return [part.strip() for part in _env(name, default).split(",") if part.strip()]
 
 
+MIB = 1024 * 1024
+# Cloud Run rejects HTTP/1 requests over 32 MiB before they reach the app (and without
+# CORS headers). 30 MiB of images plus multipart overhead stays below that.
+MAX_UPLOAD_TOTAL_MB = 30
+
+
 @dataclass(frozen=True)
 class Settings:
-    db_path: Path
     upload_dir: Path
     # stub: sample data without network; live: Shopee data APIs or Gemini Vision.
     source: Literal["stub", "live"]
@@ -68,6 +73,17 @@ class Settings:
     rapidapi_detail_url: str | None = None
     rapidapi_reviews_url: str | None = None
     http_timeout_s: int = 30
+    # Firestore. None lets the client library take the project from ADC (or the emulator).
+    firestore_project: str | None = None
+    firestore_database: str = "(default)"
+    # A processing job not updated for this long belongs to a dead worker and may be taken over.
+    job_stale_after_s: float = 240.0
+    job_sweep_interval_s: float = 60.0
+    # With trust_forwarded_for, the client IP is this many entries from the right of X-Forwarded-For.
+    trusted_proxy_hops: int = 1
+    # /scrape, /analyze and /analyze-image need Playwright with Chromium.
+    legacy_routes: bool = True
+    max_upload_total_bytes: int = MAX_UPLOAD_TOTAL_MB * MIB
 
     def with_overrides(self, **changes) -> "Settings":
         return replace(self, **changes)
@@ -81,21 +97,28 @@ def load_settings() -> Settings:
     if analyzer not in ("stub", "real"):
         raise ValueError("NEEDL_ANALYZER must be stub or real")
     max_charge = _env_optional("APIFY_MAX_CHARGE_USD")
+    job_timeout_s = float(_env_int("JOB_TIMEOUT_S", 180))
+    proxy_hops = _env_int("TRUSTED_PROXY_HOPS", 1)
+    if proxy_hops < 1:
+        raise ValueError("TRUSTED_PROXY_HOPS must be 1 or more")
+    upload_mb = _env_int("MAX_UPLOAD_TOTAL_MB", MAX_UPLOAD_TOTAL_MB)
+    if not 1 <= upload_mb <= MAX_UPLOAD_TOTAL_MB:
+        raise ValueError(f"MAX_UPLOAD_TOTAL_MB must be between 1 and {MAX_UPLOAD_TOTAL_MB}")
     return Settings(
-        db_path=_env_path("DB_PATH", str(BASE_DIR / "data" / "needl.db")),
         upload_dir=_env_path("UPLOAD_DIR", str(BASE_DIR / "data" / "uploads")),
         source=source,
         analyzer=analyzer,
         stub_step_ms=_env_int("STUB_STEP_MS", 600),
         worker_count=_env_int("WORKER_COUNT", 2),
-        job_timeout_s=float(_env_int("JOB_TIMEOUT_S", 180)),
+        job_timeout_s=job_timeout_s,
         max_attempts=_env_int("JOB_MAX_ATTEMPTS", 2),
         cache_ttl_s=_env_int("CACHE_TTL_S", 6 * 3600),
         idempotency_ttl_s=_env_int("IDEMPOTENCY_TTL_S", 24 * 3600),
         create_rate_per_min=_env_int("RATE_CREATE_PER_MIN", 10),
         poll_rate_per_min=_env_int("RATE_POLL_PER_MIN", 60),
         trust_forwarded_for=_env_bool("TRUST_FORWARDED_FOR", False),
-        cors_origins=_env_list("CORS_ORIGINS", "http://localhost:5173"),
+        # Browsers send Origin without a trailing slash; "https://x.com/" would never match.
+        cors_origins=[o.rstrip("/") for o in _env_list("CORS_ORIGINS", "http://localhost:5173")],
         shopee_providers=_env_list("SHOPEE_PROVIDERS", "apify,rapidapi"),
         shopee_max_reviews=_env_int("SHOPEE_MAX_REVIEWS", 100),
         apify_token=_env_optional("APIFY_TOKEN"),
@@ -107,4 +130,11 @@ def load_settings() -> Settings:
         rapidapi_detail_url=_env_optional("RAPIDAPI_SHOPEE_DETAIL_URL"),
         rapidapi_reviews_url=_env_optional("RAPIDAPI_SHOPEE_REVIEWS_URL"),
         http_timeout_s=_env_int("HTTP_TIMEOUT_S", 30),
+        firestore_project=_env_optional("GOOGLE_CLOUD_PROJECT"),
+        firestore_database=_env("FIRESTORE_DATABASE", "(default)"),
+        job_stale_after_s=float(_env_int("JOB_STALE_AFTER_S", int(job_timeout_s) + 60)),
+        job_sweep_interval_s=float(_env_int("JOB_SWEEP_INTERVAL_S", 60)),
+        trusted_proxy_hops=proxy_hops,
+        legacy_routes=_env_bool("ENABLE_LEGACY_ROUTES", True),
+        max_upload_total_bytes=upload_mb * MIB,
     )

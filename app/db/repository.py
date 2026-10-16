@@ -1,225 +1,298 @@
-"""SQLite access for jobs, verifications and idempotency keys."""
+"""Firestore access for jobs, verifications and idempotency keys.
 
-import json
-import sqlite3
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+Collections:
+- verification_jobs/{job_id}: one document per job.
+- verifications/{verification_id}: one saved result; `result_json` holds the full
+  VerificationResult as a JSON string (exempted from indexing in deploy/setup.sh).
+- verification_urls/{sha256(canonical_url)}: points to the newest result for a product,
+  so the cache lookup is a single get without a composite index.
+- idempotency_keys/{sha256(key)}: `expires_at` carries a Firestore TTL policy.
 
-import aiosqlite
+Jobs and verifications have no TTL: an Idempotency-Key replay expects its job to exist.
+No query needs a composite index, so the emulator (which ignores indexes) and
+production behave the same.
+"""
 
+import asyncio
+import hashlib
+import inspect
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal
+
+from google.api_core.exceptions import NotFound
+from google.auth.exceptions import DefaultCredentialsError
+from google.cloud import firestore
+from google.cloud.firestore import FieldFilter
+
+from ..config import Settings
 from ..contract.result import VerificationResult
+from .models import JobRecord, utc_now
 
-SCHEMA_VERSION = 1
-SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+log = logging.getLogger("needl.db")
 
+JOBS = "verification_jobs"
+VERIFICATIONS = "verifications"
+VERIFICATION_URLS = "verification_urls"
+IDEMPOTENCY_KEYS = "idempotency_keys"
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+UNFINISHED = ("pending", "processing")
+ClaimOutcome = Literal["claimed", "skip", "exhausted"]
 
+# Columns update_job may change, with a converter for the stored value.
+_UPDATABLE = {
+    "status": None,
+    "progress": int,
+    "canonical_url": None,
+    "verification_id": None,
+    "from_cache": bool,
+    "error_code": None,
+    "error_message": None,
+    "attempts": int,
+    "preview": None,
+}
 
-def _ts(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat()
-
-
-def _dt(value: str) -> datetime:
-    return datetime.fromisoformat(value)
-
-
-@dataclass
-class JobRecord:
-    id: str
-    status: str
-    input_kind: str
-    locale: str
-    created_at: datetime
-    updated_at: datetime
-    progress: int = 0
-    input_url: str | None = None
-    canonical_url: str | None = None
-    input: dict[str, Any] = field(default_factory=dict)
-    preview: dict[str, Any] | None = None
-    verification_id: str | None = None
-    from_cache: bool = False
-    error_code: str | None = None
-    error_message: str | None = None
-    attempts: int = 0
+CREDENTIALS_HELP = (
+    "Firestore credentials not found. Set FIRESTORE_EMULATOR_HOST for local dev "
+    "or run `gcloud auth application-default login`."
+)
 
 
-def _job_from_row(row: aiosqlite.Row) -> JobRecord:
+def _doc_id(value: str) -> str:
+    """Document IDs cannot contain '/', so free-form values are hashed."""
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _dt(value: datetime) -> datetime:
+    """Firestore returns DatetimeWithNanoseconds; keep a plain UTC datetime."""
+    v = value.astimezone(timezone.utc)
+    return datetime(v.year, v.month, v.day, v.hour, v.minute, v.second, v.microsecond, tzinfo=timezone.utc)
+
+
+def _job_to_doc(job: JobRecord) -> dict[str, Any]:
+    return {
+        "status": job.status,
+        "progress": job.progress,
+        "input_kind": job.input_kind,
+        "input_url": job.input_url,
+        "canonical_url": job.canonical_url,
+        "input": job.input,
+        "locale": job.locale,
+        "preview": job.preview,
+        "verification_id": job.verification_id,
+        "from_cache": job.from_cache,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "attempts": job.attempts,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
+
+
+def _job_from_doc(job_id: str, data: dict[str, Any]) -> JobRecord:
     return JobRecord(
-        id=row["id"],
-        status=row["status"],
-        progress=row["progress"],
-        input_kind=row["input_kind"],
-        input_url=row["input_url"],
-        canonical_url=row["canonical_url"],
-        input=json.loads(row["input_json"]),
-        locale=row["locale"],
-        preview=json.loads(row["preview_json"]) if row["preview_json"] else None,
-        verification_id=row["verification_id"],
-        from_cache=bool(row["from_cache"]),
-        error_code=row["error_code"],
-        error_message=row["error_message"],
-        attempts=row["attempts"],
-        created_at=_dt(row["created_at"]),
-        updated_at=_dt(row["updated_at"]),
+        id=job_id,
+        status=data["status"],
+        progress=data.get("progress", 0),
+        input_kind=data["input_kind"],
+        input_url=data.get("input_url"),
+        canonical_url=data.get("canonical_url"),
+        input=data.get("input") or {},
+        locale=data["locale"],
+        preview=data.get("preview"),
+        verification_id=data.get("verification_id"),
+        from_cache=bool(data.get("from_cache", False)),
+        error_code=data.get("error_code"),
+        error_message=data.get("error_message"),
+        attempts=data.get("attempts", 0),
+        created_at=_dt(data["created_at"]),
+        updated_at=_dt(data["updated_at"]),
     )
 
 
 class Repository:
-    def __init__(self, conn: aiosqlite.Connection):
-        self.conn = conn
+    def __init__(self, client: firestore.AsyncClient, idempotency_ttl_s: int):
+        self.client = client
+        self.idempotency_ttl_s = idempotency_ttl_s
 
     @classmethod
-    async def open(cls, path: Path) -> "Repository":
-        path.parent.mkdir(parents=True, exist_ok=True)
-        conn = await aiosqlite.connect(path)
-        conn.row_factory = aiosqlite.Row
-        for pragma in (
-            "PRAGMA journal_mode=WAL",
-            "PRAGMA busy_timeout=5000",
-            "PRAGMA synchronous=NORMAL",
-            "PRAGMA foreign_keys=ON",
-        ):
-            await conn.execute(pragma)
-        await conn.executescript(SCHEMA_PATH.read_text())
-        await conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-        await conn.commit()
-        return cls(conn)
+    async def open(cls, settings: Settings) -> "Repository":
+        """Connect with Application Default Credentials, or to FIRESTORE_EMULATOR_HOST when set."""
+        try:
+            client = firestore.AsyncClient(project=settings.firestore_project, database=settings.firestore_database)
+        except (DefaultCredentialsError, OSError) as exc:
+            raise RuntimeError(CREDENTIALS_HELP) from exc
+        return cls(client, settings.idempotency_ttl_s)
 
     async def close(self) -> None:
-        await self.conn.close()
+        self.client.close()
+        # AsyncClient.close() leaves the gRPC channel open; close it on this event loop.
+        api = getattr(self.client, "_firestore_api_internal", None)
+        if api is not None:
+            result = api.transport.close()
+            if inspect.isawaitable(result):
+                await result
+
+    def _job_ref(self, job_id: str):
+        return self.client.collection(JOBS).document(job_id)
+
+    def _idempotency_ref(self, key: str):
+        return self.client.collection(IDEMPOTENCY_KEYS).document(_doc_id(key))
 
     # ---- jobs ----
 
     async def insert_job(self, job: JobRecord) -> None:
-        await self.conn.execute(
-            """INSERT INTO verification_jobs (id, status, progress, input_kind, input_url, canonical_url,
-                 input_json, locale, attempts, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                job.id,
-                job.status,
-                job.progress,
-                job.input_kind,
-                job.input_url,
-                job.canonical_url,
-                json.dumps(job.input),
-                job.locale,
-                job.attempts,
-                _ts(job.created_at),
-                _ts(job.updated_at),
-            ),
-        )
-        await self.conn.commit()
+        await self._job_ref(job.id).create(_job_to_doc(job))
 
     async def get_job(self, job_id: str) -> JobRecord | None:
-        async with self.conn.execute("SELECT * FROM verification_jobs WHERE id = ?", (job_id,)) as cur:
-            row = await cur.fetchone()
-        return _job_from_row(row) if row else None
+        snap = await self._job_ref(job_id).get()
+        return _job_from_doc(snap.id, snap.to_dict()) if snap.exists else None
 
     async def update_job(self, job_id: str, **changes: Any) -> None:
-        columns = {
-            "status": None,
-            "progress": None,
-            "canonical_url": None,
-            "verification_id": None,
-            "from_cache": int,
-            "error_code": None,
-            "error_message": None,
-            "attempts": None,
-            "preview": lambda v: json.dumps(v) if v is not None else None,
-        }
-        sets, values = [], []
+        data: dict[str, Any] = {}
         for key, value in changes.items():
-            if key not in columns:
+            if key not in _UPDATABLE:
                 raise KeyError(f"unknown job column: {key}")
-            convert = columns[key]
-            sets.append(f"{'preview_json' if key == 'preview' else key} = ?")
-            values.append(convert(value) if convert else value)
-        sets.append("updated_at = ?")
-        values.append(_ts(utc_now()))
-        await self.conn.execute(f"UPDATE verification_jobs SET {', '.join(sets)} WHERE id = ?", (*values, job_id))
-        await self.conn.commit()
+            convert = _UPDATABLE[key]
+            data[key] = convert(value) if convert and value is not None else value
+        data["updated_at"] = utc_now()
+        try:
+            await self._job_ref(job_id).update(data)
+        except NotFound:
+            log.warning("update of missing job %s ignored", job_id)
 
     async def delete_job(self, job_id: str) -> None:
-        await self.conn.execute("DELETE FROM verification_jobs WHERE id = ?", (job_id,))
-        await self.conn.commit()
+        await self._job_ref(job_id).delete()
 
     async def unfinished_jobs(self) -> list[JobRecord]:
-        async with self.conn.execute(
-            "SELECT * FROM verification_jobs WHERE status IN ('pending', 'processing') ORDER BY created_at"
-        ) as cur:
-            rows = await cur.fetchall()
-        return [_job_from_row(r) for r in rows]
+        # No order_by: filter + order on different fields would need a composite index.
+        query = self.client.collection(JOBS).where(filter=FieldFilter("status", "in", list(UNFINISHED)))
+        jobs = [_job_from_doc(snap.id, snap.to_dict()) async for snap in query.stream()]
+        return sorted(jobs, key=lambda job: job.created_at)
+
+    async def claim_job(
+        self, job_id: str, stale_before: datetime, max_attempts: int, progress: int
+    ) -> tuple[ClaimOutcome, JobRecord | None]:
+        """Mark a job as processing by this worker, in a transaction.
+
+        skip: unknown, finished, or processing and updated since `stale_before` (a live
+        worker has it). exhausted: no attempts left (nothing written). claimed: the
+        job is now processing with one more attempt.
+        """
+        ref = self._job_ref(job_id)
+
+        @firestore.async_transactional
+        async def claim(transaction) -> tuple[ClaimOutcome, JobRecord | None]:
+            snap = await ref.get(transaction=transaction)
+            if not snap.exists:
+                return "skip", None
+            job = _job_from_doc(snap.id, snap.to_dict())
+            if job.status not in UNFINISHED:
+                return "skip", None
+            if job.status == "processing" and job.updated_at >= stale_before:
+                return "skip", None
+            if job.attempts >= max_attempts:
+                return "exhausted", job
+            now = utc_now()
+            transaction.update(
+                ref, {"status": "processing", "progress": progress, "attempts": job.attempts + 1, "updated_at": now}
+            )
+            job.status, job.progress, job.attempts, job.updated_at = "processing", progress, job.attempts + 1, now
+            return "claimed", job
+
+        return await self._transact(claim)
+
+    async def _transact(self, fn):
+        """Run an @async_transactional function in a new transaction.
+
+        When the task is cancelled while the transaction begins (server shutdown), the
+        library tries to roll back a transaction that never started and raises
+        ValueError instead. Raise the cancellation again so shutdown does not hang.
+        """
+        try:
+            return await fn(self.client.transaction())
+        except Exception as exc:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise asyncio.CancelledError() from exc
+            raise
 
     # ---- verifications ----
 
     async def insert_verification(self, result: VerificationResult) -> None:
-        await self.conn.execute(
-            """INSERT INTO verifications (id, source_kind, canonical_url, name, price, store_name, trust_score,
-                 risk_level, finding_count, result_json, checked_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                str(result.id),
-                result.source.kind,
-                str(result.source.canonical_url) if result.source.canonical_url else None,
-                result.displayName,
-                result.product.price,
-                result.metadata.store_name,
-                result.trust_score,
-                result.risk_level.value,
-                sum(1 for c in result.checks if c.severity != "pass"),
-                result.model_dump_json(),
-                _ts(result.checked_at),
-            ),
+        verification_id = str(result.id)
+        canonical_url = str(result.source.canonical_url) if result.source.canonical_url else None
+        batch = self.client.batch()
+        batch.set(
+            self.client.collection(VERIFICATIONS).document(verification_id),
+            {
+                "source_kind": result.source.kind,
+                "canonical_url": canonical_url,
+                "name": result.displayName,
+                "price": result.product.price,
+                "store_name": result.metadata.store_name,
+                "trust_score": result.trust_score,
+                "risk_level": result.risk_level.value,
+                "finding_count": sum(1 for c in result.checks if c.severity != "pass"),
+                "checked_at": result.checked_at,
+                "result_json": result.model_dump_json(),
+            },
         )
-        await self.conn.commit()
+        if canonical_url:
+            # Newest result per product. Concurrent writers: last one wins, both are fresh.
+            batch.set(
+                self.client.collection(VERIFICATION_URLS).document(_doc_id(canonical_url)),
+                {"canonical_url": canonical_url, "verification_id": verification_id, "checked_at": result.checked_at},
+            )
+        await batch.commit()
 
     async def get_verification(self, verification_id: str) -> VerificationResult | None:
-        async with self.conn.execute(
-            "SELECT result_json FROM verifications WHERE id = ?", (verification_id,)
-        ) as cur:
-            row = await cur.fetchone()
-        return VerificationResult.model_validate_json(row["result_json"]) if row else None
+        snap = await self.client.collection(VERIFICATIONS).document(verification_id).get()
+        return VerificationResult.model_validate_json(snap.get("result_json")) if snap.exists else None
 
     async def find_fresh_verification(self, canonical_url: str, newer_than: datetime) -> str | None:
-        async with self.conn.execute(
-            """SELECT id FROM verifications WHERE canonical_url = ? AND checked_at > ?
-               ORDER BY checked_at DESC LIMIT 1""",
-            (canonical_url, _ts(newer_than)),
-        ) as cur:
-            row = await cur.fetchone()
-        return row["id"] if row else None
+        snap = await self.client.collection(VERIFICATION_URLS).document(_doc_id(canonical_url)).get()
+        if not snap.exists or _dt(snap.get("checked_at")) <= newer_than:
+            return None
+        return snap.get("verification_id")
 
     # ---- idempotency ----
 
     async def get_idempotency(self, key: str) -> tuple[str, str, datetime] | None:
-        async with self.conn.execute(
-            "SELECT request_hash, job_id, created_at FROM idempotency_keys WHERE key = ?", (key,)
-        ) as cur:
-            row = await cur.fetchone()
-        return (row["request_hash"], row["job_id"], _dt(row["created_at"])) if row else None
+        snap = await self._idempotency_ref(key).get()
+        if not snap.exists:
+            return None
+        data = snap.to_dict()
+        # The TTL policy deletes expired documents later (often within a day), so check here.
+        if data.get("expires_at") is not None and _dt(data["expires_at"]) <= utc_now():
+            return None
+        return data["request_hash"], data["job_id"], _dt(data["created_at"])
 
     async def insert_idempotency(self, key: str, request_hash: str, job_id: str) -> bool:
-        """False when another request stored the same key first."""
-        try:
-            await self.conn.execute(
-                "INSERT INTO idempotency_keys (key, request_hash, job_id, created_at) VALUES (?, ?, ?, ?)",
-                (key, request_hash, job_id, _ts(utc_now())),
+        """False when another request stored the same key first and it has not expired."""
+        ref = self._idempotency_ref(key)
+
+        @firestore.async_transactional
+        async def insert(transaction) -> bool:
+            now = utc_now()
+            snap = await ref.get(transaction=transaction)
+            if snap.exists:
+                expires_at = snap.to_dict().get("expires_at")
+                if expires_at is None or _dt(expires_at) > now:
+                    return False
+            transaction.set(
+                ref,
+                {
+                    "key": key,
+                    "request_hash": request_hash,
+                    "job_id": job_id,
+                    "created_at": now,
+                    "expires_at": now + timedelta(seconds=self.idempotency_ttl_s),
+                },
             )
-            await self.conn.commit()
             return True
-        except sqlite3.IntegrityError:
-            await self.conn.rollback()
-            return False
+
+        return await self._transact(insert)
 
     async def delete_idempotency(self, key: str) -> None:
-        await self.conn.execute("DELETE FROM idempotency_keys WHERE key = ?", (key,))
-        await self.conn.commit()
-
-    async def purge_idempotency(self, older_than: datetime) -> None:
-        await self.conn.execute("DELETE FROM idempotency_keys WHERE created_at < ?", (_ts(older_than),))
-        await self.conn.commit()
+        await self._idempotency_ref(key).delete()

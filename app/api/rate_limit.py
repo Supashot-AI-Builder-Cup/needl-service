@@ -1,4 +1,10 @@
-"""In-memory sliding-window rate limit per client IP. Fine for a single process."""
+"""In-memory sliding-window rate limit per client IP. Fine for a single process.
+
+Behind proxies (Cloud Run, a load balancer) every request comes from the proxy, so the
+client IP is read from X-Forwarded-For. Clients can send their own X-Forwarded-For;
+proxies append to it, so only the entries added by trusted proxies (counted from the
+right) are reliable.
+"""
 
 import math
 import time
@@ -12,17 +18,19 @@ WINDOW_S = 60.0
 
 
 class RateLimiter:
-    def __init__(self, limits: dict[str, int], trust_forwarded_for: bool = False):
+    def __init__(self, limits: dict[str, int], trust_forwarded_for: bool = False, trusted_proxy_hops: int = 1):
         self.limits = limits
         self.trust_forwarded_for = trust_forwarded_for
+        self.trusted_proxy_hops = trusted_proxy_hops
         self._hits: dict[tuple[str, str], deque[float]] = {}
         self._calls = 0
 
     def client_ip(self, request: Request) -> str:
         if self.trust_forwarded_for:
             forwarded = request.headers.get("x-forwarded-for", "")
-            if forwarded:
-                return forwarded.split(",")[0].strip()
+            entries = [part.strip() for part in forwarded.split(",") if part.strip()]
+            if len(entries) >= self.trusted_proxy_hops:
+                return entries[-self.trusted_proxy_hops]
         return request.client.host if request.client else "unknown"
 
     def check(self, request: Request, bucket: str) -> None:

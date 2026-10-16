@@ -1,0 +1,21 @@
+# Keep secrets and local data out of the image and the build context.
+.git/
+.gitignore
+.venv/
+.env
+.env.*
+!.env.example
+data/
+tests/
+scripts/
+deploy/
+__pycache__/
+*.pyc
+.pytest_cache/
+.agents/
+package-lock.json
+README.md
+.gcloudignore
+# Render copies secret files into the build context; keep them out of the image.
+firestore-key.json
+*firestore-key*.json

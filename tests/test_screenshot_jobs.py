@@ -1,3 +1,10 @@
+import io
+import os
+
+import httpx
+from PIL import Image
+
+from main import create_app
 from tests.conftest import JOBS, image_bytes, wait_for_job
 
 
@@ -73,6 +80,38 @@ async def test_content_length_over_limit_is_413(client):
         headers={"content-type": "multipart/form-data; boundary=abc", "content-length": str(60 * 1024 * 1024)},
     )
     assert res.status_code == 413
+
+
+async def test_content_length_over_default_30_mib_limit_is_413(client):
+    res = await client.post(
+        JOBS,
+        content=b"x",
+        headers={"content-type": "multipart/form-data; boundary=abc", "content-length": str(31 * 1024 * 1024)},
+    )
+    assert res.status_code == 413
+    assert res.json()["detail"]["code"] == "payload_too_large"
+
+
+def noise_png(side: int = 440) -> bytes:
+    """A valid PNG that does not compress: about 0.55 MiB at 440x440."""
+    buf = io.BytesIO()
+    Image.frombytes("RGB", (side, side), os.urandom(side * side * 3)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def test_screenshots_over_total_limit_are_413(settings):
+    app = create_app(settings.with_overrides(max_upload_total_bytes=1024 * 1024))
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            res = await client.post(
+                JOBS,
+                files={"product": ("p.png", noise_png(), "image/png"), "store": ("s.png", noise_png(), "image/png")},
+                headers={"Origin": "http://localhost:5173"},
+            )
+    assert res.status_code == 413
+    assert res.json()["detail"]["code"] == "payload_too_large"
+    assert res.json()["detail"]["message"] == "Screenshots are larger than 1 MiB in total."
+    assert res.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
 async def test_too_many_extras_is_422(client):

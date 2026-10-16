@@ -5,7 +5,7 @@ from typing import Awaitable, Callable, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from ..db.repository import JobRecord
+from ..db.models import JobRecord
 
 ProgressFn = Callable[[int], Awaitable[None]]
 
