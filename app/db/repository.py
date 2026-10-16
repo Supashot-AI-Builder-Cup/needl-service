@@ -185,6 +185,53 @@ class Repository:
             row = await cur.fetchone()
         return VerificationResult.model_validate_json(row["result_json"]) if row else None
 
+    async def list_verifications(
+        self,
+        *,
+        limit: int,
+        cursor: tuple[str, str] | None = None,
+        risk_level: str | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+    ) -> list[dict[str, Any]]:
+        where, values = [], []
+        if risk_level:
+            where.append("risk_level = ?")
+            values.append(risk_level)
+        if from_:
+            where.append("checked_at >= ?")
+            values.append(from_)
+        if to:
+            where.append("checked_at < ?")
+            values.append(to)
+        if cursor:
+            where.append("(checked_at < ? OR (checked_at = ? AND id < ?))")
+            values.extend((cursor[0], cursor[0], cursor[1]))
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        async with self.conn.execute(
+            f"""SELECT id, source_kind, name, price, store_name, trust_score, risk_level,
+                       finding_count, result_json, checked_at
+                FROM verifications {clause}
+                ORDER BY checked_at DESC, id DESC LIMIT ?""",
+            (*values, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "source_kind": row["source_kind"],
+                "source_url": json.loads(row["result_json"])["source"].get("url"),
+                "name": row["name"],
+                "price": row["price"],
+                "store_name": row["store_name"],
+                "trust_score": row["trust_score"],
+                "risk_level": row["risk_level"],
+                "finding_count": row["finding_count"],
+                "checked_at": row["checked_at"],
+            }
+            for row in rows
+        ]
+
     async def find_fresh_verification(self, canonical_url: str, newer_than: datetime) -> str | None:
         async with self.conn.execute(
             """SELECT id FROM verifications WHERE canonical_url = ? AND checked_at > ?
