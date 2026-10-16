@@ -1,9 +1,12 @@
 import uuid
+from datetime import timedelta
 
+import httpx
 import pytest
 
 from app.contract.jobs import VerificationJob
-from app.db.repository import JobRecord, utc_now
+from app.db.models import JobRecord, utc_now
+from main import create_app
 from tests.conftest import JOBS, RISKY_LINK, SAFE_LINK, wait_for_job
 
 
@@ -71,12 +74,24 @@ async def test_pending_job_shape(app, client):
     assert data["preview"] is None and data["verification"] is None and data["error"] is None
 
 
+async def test_expired_idempotency_key_starts_a_new_job(settings):
+    app = create_app(settings.with_overrides(idempotency_ttl_s=0))
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            headers = {"Idempotency-Key": "scan-expiring"}
+            first = await client.post(JOBS, json={"url": RISKY_LINK}, headers=headers)
+            second = await client.post(JOBS, json={"url": SAFE_LINK}, headers=headers)
+    assert first.status_code == 202 and second.status_code == 202
+    assert first.json()["data"]["id"] != second.json()["data"]["id"]
+
+
 async def test_job_that_keeps_getting_interrupted_fails(app, client, settings):
-    now = utc_now()
+    # Last touched long ago: its worker is gone, so it may be claimed, but no attempts are left.
+    old = utc_now() - timedelta(hours=1)
     job_id = str(uuid.uuid4())
     await app.state.repo.insert_job(
         JobRecord(id=job_id, status="processing", input_kind="url", input_url=RISKY_LINK, locale="en-US",
-                  created_at=now, updated_at=now, attempts=settings.max_attempts)
+                  created_at=old, updated_at=old, attempts=settings.max_attempts)
     )
     await app.state.queue.put(job_id)
     data = await wait_for_job(client, job_id)

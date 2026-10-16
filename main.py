@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import httpx
@@ -6,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.analysis.stub import StubAnalyzer
-from app.api.errors import RequestIdMiddleware, install_error_handlers
+from app.api.errors import RequestIdMiddleware, UnhandledErrorMiddleware, install_error_handlers
 from app.api.rate_limit import RateLimiter
 from app.api.verifications import router as verifications_router
 from app.api.verification_jobs import router as verification_jobs_router
@@ -65,7 +66,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        repo = await Repository.open(settings.db_path)
+        repo = await Repository.open(settings)
         http = httpx.AsyncClient(timeout=settings.http_timeout_s, transport=http_transport)
         if settings.source == "stub":
             sources = SourceRegistry(stub=StubSource(settings.stub_step_ms))
@@ -77,7 +78,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
                 screenshots=ScreenshotSource(),
             )
         runner = JobRunner(settings, repo, sources, StubAnalyzer(settings.stub_step_ms))
-        queue = JobQueue(runner, settings.worker_count)
+        queue = JobQueue(runner, settings.worker_count, settings.job_stale_after_s, settings.job_sweep_interval_s)
 
         app.state.settings = settings
         app.state.repo = repo
@@ -85,6 +86,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
         app.state.limiter = RateLimiter(
             {"create": settings.create_rate_per_min, "poll": settings.poll_rate_per_min},
             trust_forwarded_for=settings.trust_forwarded_for,
+            trusted_proxy_hops=settings.trusted_proxy_hops,
         )
         await queue.start(repo)
         try:
@@ -95,6 +97,8 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
             await repo.close()
 
     app = FastAPI(title="needl API", version="1.0.0", lifespan=lifespan)
+    # Added first = innermost, so its 500 response still passes through CORS and request id.
+    app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -112,6 +116,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
             "gemini_configured": gemini.is_configured(),
             "source": settings.source,
             "shopee_providers": configured_providers(settings),
+            "firestore_emulator": bool(os.environ.get("FIRESTORE_EMULATOR_HOST")),
         }
 
     app.include_router(verification_jobs_router)

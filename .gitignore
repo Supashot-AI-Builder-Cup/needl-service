@@ -7,8 +7,15 @@ backend/.venv/
 .env
 backend/.env
 
-# SQLite database and screenshot uploads
+# Local screenshot uploads
 data/
+
+# Cloud Run settings for your project (copy of deploy/env.example.yaml)
+deploy/env.yaml
+
+# Service account keys: never commit
+*firestore-key*.json
+needl-57990-*.json
 
 # Raw provider responses from scripts.shopee_fetch --save (contain reviewer names).
 tests/fixtures/shopee/

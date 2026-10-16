@@ -3,13 +3,15 @@
 import asyncio
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 from ..analysis.base import AnalysisError, Analyzer
 from ..analysis.build import build_result
 from ..analysis.present import build_preview, display_name
 from ..config import Settings
 from ..contract.jobs import JobPreview
-from ..db.repository import JobRecord, Repository, utc_now
+from ..db.models import JobRecord, utc_now
+from ..db.repository import Repository
 from ..sources.base import RawListing, Source, SourceError
 from ..sources.screenshot_files import remove_upload
 from . import progress as P
@@ -47,13 +49,22 @@ class JobRunner:
         self.analyzer = analyzer
 
     async def run(self, job_id: str) -> None:
-        job = await self.repo.get_job(job_id)
-        if job is None or job.status in ("completed", "failed"):
+        stale_before = utc_now() - timedelta(seconds=self.settings.job_stale_after_s)
+        outcome, job = await self.repo.claim_job(job_id, stale_before, self.settings.max_attempts, P.STARTED)
+        if outcome == "skip":
+            # Finished, unknown, or still being processed by a live worker elsewhere.
             return
-        if job.attempts >= self.settings.max_attempts:
+        if outcome == "exhausted":
+            await self._fail(job, "interrupted")
+            if job.input_kind == "screenshots":
+                remove_upload(job.input.get("dir"))
+            return
+        upload_dir = job.input.get("dir")
+        if job.input_kind == "screenshots" and not (upload_dir and Path(upload_dir).is_dir()):
+            # Uploads live on the instance that received them; this one cannot read them.
+            log.info("job %s: uploads not on this instance", job.id)
             await self._fail(job, "interrupted")
             return
-        await self.repo.update_job(job.id, status="processing", progress=P.STARTED, attempts=job.attempts + 1)
 
         finished = False
         try:
@@ -71,7 +82,7 @@ class JobRunner:
             await self._fail(job, "analysis_failed")
             finished = True
         except asyncio.CancelledError:
-            # Server shutting down: the job stays "processing" and is requeued on the next start.
+            # Server shutting down: the job stays "processing"; a sweeper takes it over once it is stale.
             raise
         except Exception:
             log.exception("job %s failed unexpectedly", job.id)
@@ -115,6 +126,8 @@ class JobRunner:
         if verification_id is None:
             return False
         result = await self.repo.get_verification(verification_id)
+        if result is None:
+            return False
         preview = JobPreview(
             displayName=result.displayName,
             product=result.product.model_dump(exclude={"score", "verdict"}),

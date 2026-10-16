@@ -5,7 +5,7 @@ import logging
 
 import httpx
 
-from ..db.repository import JobRecord
+from ..db.models import JobRecord
 from .base import ProgressFn, RawListing, SourceError
 from .providers.base import ListingNotFound, ProviderError, ShopeeProvider
 from .shopee_url import parse_shopee_link

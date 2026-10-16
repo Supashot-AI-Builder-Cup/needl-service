@@ -22,7 +22,7 @@ EXTRA_NAMES_FIELD = "extra_names"
 TEXT_FIELDS = ("locale", EXTRA_NAMES_FIELD)
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
-MAX_TOTAL_BYTES = 50 * 1024 * 1024
+# The total limit comes from Settings.max_upload_total_bytes (MAX_UPLOAD_TOTAL_MB).
 MAX_IMAGES = 10
 MAX_EXTRAS = 5
 MAX_NAME_LENGTH = 100
@@ -100,7 +100,7 @@ def check_image(data: bytes, loc: str) -> str:
     return _EXT[sniffed]
 
 
-async def read_screenshot_form(form: FormData) -> ScreenshotUpload:
+async def read_screenshot_form(form: FormData, max_total_bytes: int) -> ScreenshotUpload:
     """Validate a screenshot form. Raises 422 (fields), 413 (size) or 415 (type)."""
     issues: list[dict] = []
     keys = list(form.keys())
@@ -166,8 +166,9 @@ async def read_screenshot_form(form: FormData) -> ScreenshotUpload:
 
     if upload.count > MAX_IMAGES:
         raise ApiError(413, "too_many_images", f"At most {MAX_IMAGES} images are allowed.")
-    if total > MAX_TOTAL_BYTES:
-        raise ApiError(413, "payload_too_large", "Screenshots are larger than 50 MiB in total.")
+    if total > max_total_bytes:
+        limit_mib = max_total_bytes // (1024 * 1024)
+        raise ApiError(413, "payload_too_large", f"Screenshots are larger than {limit_mib} MiB in total.")
     return upload
 
 
