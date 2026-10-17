@@ -62,7 +62,8 @@ def build_providers(settings: Settings, http: httpx.AsyncClient) -> list[ShopeeP
 def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     """`http_transport` lets tests replace outgoing HTTP calls."""
     settings = settings or load_settings()
-    if settings.analyzer == "real" and settings.source != "live":
+    use_live_source = settings.source == "live"
+    if settings.analyzer == "real" and not use_live_source:
         raise RuntimeError("NEEDL_ANALYZER=real requires NEEDL_SOURCE=live; stub listings are sample data")
     if settings.analyzer == "real" and not gemini.is_configured():
         raise RuntimeError("NEEDL_ANALYZER=real requires GEMINI_API_KEY")
@@ -70,7 +71,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
     async def lifespan(app: FastAPI):
         repo = await Repository.open(settings)
         http = httpx.AsyncClient(timeout=settings.http_timeout_s, transport=http_transport)
-        if settings.source == "stub":
+        if not use_live_source:
             sources = SourceRegistry(stub=StubSource(settings.stub_step_ms))
         else:
             providers = build_providers(settings, http)
@@ -119,6 +120,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
     async def health():
         return {
             "status": "ok",
+            "analyzer": settings.analyzer,
             "gemini_configured": gemini.is_configured(),
             "source": settings.source,
             "shopee_providers": configured_providers(settings),

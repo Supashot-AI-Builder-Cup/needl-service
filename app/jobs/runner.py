@@ -101,9 +101,9 @@ class JobRunner:
                 last = value
                 await self.repo.update_job(job.id, progress=min(value, P.SAVING))
 
-        # Older Firestore results have no analyzer provenance; avoid returning sample analysis
-        # for a real-analyzer job until results are versioned by analyzer.
-        use_cache = self.settings.analyzer == "stub"
+        # Older Firestore results have no source or analyzer provenance, so cache only
+        # the deterministic stub+stub pipeline. Live-source jobs must fetch fresh data.
+        use_cache = self.settings.source == "stub" and self.settings.analyzer == "stub"
         if use_cache and job.canonical_url and await self._complete_from_cache(job, job.canonical_url):
             return
 

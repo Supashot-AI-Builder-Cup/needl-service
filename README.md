@@ -55,8 +55,8 @@ cp .env.example .env
 
 | Variable                                                     | Default                                                                                  | Description                                                                                                                                                                                        |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEEDL_SOURCE`                                               | `stub`                                                                                   | `stub`: sample listing, no network. `live`: Shopee data providers for links, Gemini Vision for screenshots                                                                                         |
-| `NEEDL_ANALYZER`                                             | `stub`                                                                                   | `stub`: sample checks. `real`: Gemini assesses available listing/review evidence; requires `NEEDL_SOURCE=live` and `GEMINI_API_KEY`                                                                  |
+| `NEEDL_SOURCE`                                               | `stub`                                                                                   | `stub`: sample listing, no network. `live`: Shopee data providers for links, Gemini Vision for screenshots                                                                                        |
+| `NEEDL_ANALYZER`                                             | `stub`                                                                                   | `stub`: sample checks from `app/analysis/stub_data.json`. `real`: Gemini analysis; requires `NEEDL_SOURCE=live`, `GEMINI_API_KEY`, and a configured Shopee provider                                |
 | `STUB_STEP_MS`                                               | `600`                                                                                    | Delay per step in stub mode, so polling looks like a real run                                                                                                                                      |
 | `GEMINI_API_KEY`                                             | -                                                                                        | Needed for screenshot extraction and `NEEDL_ANALYZER=real`                                                                                                                                         |
 | `GEMINI_MODEL`                                               | `gemini-2.5-flash`                                                                       | Gemini model name                                                                                                                                                                                  |
@@ -85,10 +85,13 @@ cp .env.example .env
 | `TRUST_FORWARDED_FOR`                                        | `false`                                                                                  | Read the client IP from `X-Forwarded-For`. Turn on behind a proxy (Cloud Run)                                                                                                                      |
 | `TRUSTED_PROXY_HOPS`                                         | `1`                                                                                      | Which `X-Forwarded-For` entry is the client, counted from the right. `1` on Cloud Run, `2` behind an external load balancer. Entries further left are sent by the client and can be faked          |
 
-To avoid sample data, configure `.env` with `NEEDL_SOURCE=live` and
-`NEEDL_ANALYZER=real`, then set `GEMINI_API_KEY` and configure a Shopee provider
-(`APIFY_TOKEN` or RapidAPI credentials). Submit a new job after switching modes;
-real mode skips caching because existing Firestore results have no analyzer provenance.
+Use `NEEDL_SOURCE=live` with `NEEDL_ANALYZER=real` to fetch Shopee data and
+analyze it with Gemini. `NEEDL_SOURCE=stub` with `NEEDL_ANALYZER=stub` uses
+sample listings and checks from `app/analysis/stub_data.json`. Real mode needs
+`GEMINI_API_KEY` and a configured Shopee provider (`APIFY_TOKEN` or RapidAPI
+credentials); `real+stub` is rejected at startup. `live+stub` fetches live
+listings but returns the sample analysis. Only `stub+stub` uses cached results;
+existing Firestore records have no source or analyzer provenance.
 
 `.env` is git-ignored. Never commit real keys.
 

@@ -15,7 +15,6 @@ except Exception:
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_INSTRUCTION = (
-    "You extract structured data from e-commerce product screenshots. "
     "Respond ONLY with valid JSON matching the requested schema."
 )
 
