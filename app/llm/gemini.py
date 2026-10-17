@@ -32,6 +32,34 @@ def _client():
     return genai.Client(api_key=api_key)
 
 
+def _for_gemini(node):
+    if isinstance(node, list):
+        return [_for_gemini(v) for v in node]
+    if not isinstance(node, dict):
+        return node
+    out = {}
+    for key, value in node.items():
+        if key == "discriminator":
+            continue
+        if key == "const":
+            out["enum"] = [value]
+        else:
+            out["anyOf" if key == "oneOf" else key] = _for_gemini(value)
+    return out
+
+
+def response_json_schema(schema) -> dict:
+    """JSON Schema of a Pydantic model in a form Gemini accepts and follows.
+
+    Discriminated unions (such as the contract's Evidence) come out of Pydantic as
+    `oneOf` plus `discriminator`, which the SDK rejects; `anyOf` lists the same
+    choices. Each choice's tag (`kind: Literal["claims"]`) is a `const`, which Gemini
+    does not enforce (it invented other kinds), so it becomes a one-value `enum`.
+    The answer is still validated against the full Pydantic model.
+    """
+    return _for_gemini(schema.model_json_schema())
+
+
 async def generate_structured(contents, schema, model=None, temperature=0.1):
     """Ask Gemini for JSON matching a Pydantic model and return the parsed model.
 
@@ -42,7 +70,7 @@ async def generate_structured(contents, schema, model=None, temperature=0.1):
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
         response_mime_type="application/json",
-        response_schema=schema,
+        response_json_schema=response_json_schema(schema),
         temperature=temperature,
     )
     response = await client.aio.models.generate_content(
@@ -50,8 +78,6 @@ async def generate_structured(contents, schema, model=None, temperature=0.1):
         contents=contents,
         config=config,
     )
-    if isinstance(response.parsed, schema):
-        return response.parsed
     return schema.model_validate_json(response.text or "")
 
 

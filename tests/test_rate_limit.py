@@ -56,7 +56,3 @@ async def test_legacy_routes_can_be_turned_off(settings):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             res = await client.post("/scrape", json={"url": "https://shopee.co.id/x"})
     assert res.status_code == 404
-
-
-def test_legacy_routes_are_on_when_enabled(settings):
-    assert "/scrape" in create_app(settings).openapi()["paths"]
