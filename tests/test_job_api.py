@@ -101,6 +101,22 @@ async def test_verification_history_and_detail_use_saved_firestore_results(clien
     assert str(detail.json()["data"]["id"]) == ids[0]
 
 
+async def test_history_items_carry_the_product_image(app, client):
+    from tests.test_repository import make_result
+
+    photo = "https://down-id.img.susercontent.com/file/id-11134207-example"
+    result = await make_result()
+    with_photo = result.model_copy(update={"product": result.product.model_copy(update={"image": photo})})
+    await app.state.repo.insert_verification(with_photo)
+    without_photo = await make_result(kind="screenshots")
+    await app.state.repo.insert_verification(without_photo)
+
+    res = await client.get("/api/v1/verifications")
+    assert res.status_code == 200, res.text
+    images = {item["id"]: item["image"] for item in res.json()["data"]}
+    assert images == {str(with_photo.id): photo, str(without_photo.id): None}
+
+
 async def test_expired_idempotency_key_starts_a_new_job(settings):
     app = create_app(settings.with_overrides(idempotency_ttl_s=0))
     async with app.router.lifespan_context(app):

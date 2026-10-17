@@ -16,6 +16,8 @@ class VerificationHistoryItem(ContractModel):
     source_url: HttpUrl | None
     name: str
     price: str
+    # Same as the result's product.image: main product photo, null when unknown.
+    image: str | None = None
     store_name: str | None
     trust_score: int = Field(ge=0, le=100)
     risk_level: RiskLevel

@@ -76,6 +76,7 @@ async def list_verifications(
                 "source_url": row["source_url"],
                 "name": row["name"],
                 "price": row["price"],
+                "image": row["image"],
                 "store_name": row["store_name"],
                 "trust_score": row["trust_score"],
                 "risk_level": risk,

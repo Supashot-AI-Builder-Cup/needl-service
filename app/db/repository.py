@@ -280,21 +280,26 @@ class Repository:
                 continue
             rows.append((checked, snap.id, row))
         rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        return [
-            {
-                "id": verification_id,
-                "source_kind": row["source_kind"],
-                "source_url": json.loads(row["result_json"])["source"].get("url"),
-                "name": row["name"],
-                "price": row["price"],
-                "store_name": row["store_name"],
-                "trust_score": row["trust_score"],
-                "risk_level": row["risk_level"],
-                "finding_count": row["finding_count"],
-                "checked_at": checked.isoformat(),
-            }
-            for checked, verification_id, row in rows[:limit]
-        ]
+        items = []
+        for checked, verification_id, row in rows[:limit]:
+            # Read from the saved result, so results stored before these fields existed have them too.
+            result = json.loads(row["result_json"])
+            items.append(
+                {
+                    "id": verification_id,
+                    "source_kind": row["source_kind"],
+                    "source_url": result["source"].get("url"),
+                    "name": row["name"],
+                    "price": row["price"],
+                    "image": result["product"].get("image"),
+                    "store_name": row["store_name"],
+                    "trust_score": row["trust_score"],
+                    "risk_level": row["risk_level"],
+                    "finding_count": row["finding_count"],
+                    "checked_at": checked.isoformat(),
+                }
+            )
+        return items
 
     async def find_fresh_verification(self, canonical_url: str, newer_than: datetime) -> str | None:
         snap = await self.client.collection(VERIFICATION_URLS).document(_doc_id(canonical_url)).get()
