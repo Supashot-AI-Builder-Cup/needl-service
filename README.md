@@ -310,57 +310,6 @@ PROJECT_ID=my-project deploy/smoke.sh --with-job --link '<real Shopee link>'   #
 timeout 300 s, min 0 / max 1 instances, `deploy/env.yaml`, and each secret that
 has a version.
 
-### GitHub Actions CI/CD
-
-`.github/workflows/ci-cd.yml` runs Firestore-emulator tests on pull requests to
-`main`; pushes to `main` deploy after tests pass. Configure Workload Identity
-Federation once in GCP. Replace `PROJECT_ID` and `ORG/REPO` below:
-
-```bash
-PROJECT_ID=my-project
-ORG_REPO=my-org/my-repo
-PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-CI_SA="needl-github-deploy@$PROJECT_ID.iam.gserviceaccount.com"
-
-gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com \
-  --project "$PROJECT_ID"
-gcloud iam service-accounts create needl-github-deploy --project "$PROJECT_ID"
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$CI_SA" --role=roles/run.admin
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$CI_SA" --role=roles/run.sourceDeveloper
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$CI_SA" --role=roles/serviceusage.serviceUsageConsumer
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$CI_SA" --role=roles/secretmanager.viewer
-gcloud iam service-accounts add-iam-policy-binding \
-  "needl-service@$PROJECT_ID.iam.gserviceaccount.com" --project "$PROJECT_ID" \
-  --member="serviceAccount:$CI_SA" --role=roles/iam.serviceAccountUser
-
-gcloud iam workload-identity-pools create github --project "$PROJECT_ID" \
-  --location=global --display-name=GitHub-Actions
-gcloud iam workload-identity-pools providers create-oidc github \
-  --project "$PROJECT_ID" --location=global --workload-identity-pool=github \
-  --display-name=GitHub --issuer-uri=https://token.actions.githubusercontent.com \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --attribute-condition="assertion.repository=='$ORG_REPO'"
-gcloud iam service-accounts add-iam-policy-binding "$CI_SA" --project "$PROJECT_ID" \
-  --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$ORG_REPO"
-```
-
-In GitHub repository **Settings → Secrets and variables → Actions**, add:
-
-| Kind | Name | Value |
-|---|---|---|
-| Variable | `GCP_PROJECT_ID` | GCP project ID |
-| Variable | `CORS_ORIGINS` | UI origin, for example `https://app.example.com` |
-| Secret | `GCP_WIF_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github` |
-| Secret | `GCP_SERVICE_ACCOUNT` | `needl-github-deploy@PROJECT_ID.iam.gserviceaccount.com` |
-
-Set branch protection on `main` to require the `test` check. Runtime API keys
-remain in GCP Secret Manager; the deploy script attaches enabled secret versions.
-
 ### needl-ui
 
 Build the UI with `VITE_API_URL` set to the Cloud Run URL (`deploy.sh` prints it),

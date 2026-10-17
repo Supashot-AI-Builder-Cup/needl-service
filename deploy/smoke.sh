@@ -55,7 +55,13 @@ echo "Service: $url"
 health="$(curl -fsS "$url/health")" || fail "/health did not answer"
 [ "$(echo "$health" | json 'd["status"]')" = "ok" ] || fail "/health status: $health"
 [ "$(echo "$health" | json 'd["firestore_emulator"]')" = "False" ] || fail "the service points at a Firestore emulator"
-pass "/health ok (source=$(echo "$health" | json 'd["source"]'), providers=$(echo "$health" | json 'd["shopee_providers"]'), gemini=$(echo "$health" | json 'd["gemini_configured"]'))"
+source="$(echo "$health" | json 'd["source"]')"
+analyzer="$(echo "$health" | json 'd["analyzer"]')"
+[ "$source" = "live" ] || fail "expected NEEDL_SOURCE=live, got $source"
+[ "$analyzer" = "real" ] || fail "expected NEEDL_ANALYZER=real, got $analyzer"
+[ "$(echo "$health" | json 'd["gemini_configured"]')" = "True" ] || fail "Gemini is not configured"
+[ "$(echo "$health" | json 'bool(d["shopee_providers"])')" = "True" ] || fail "no Shopee provider is configured"
+pass "/health ok (source=$source, analyzer=$analyzer, providers=$(echo "$health" | json 'd["shopee_providers"]'), gemini configured)"
 
 # 2. CORS preflight from the UI origin
 if [ -n "$origin" ]; then
