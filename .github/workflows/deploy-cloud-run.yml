@@ -1,0 +1,49 @@
+name: Validate and deploy needl-service
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: scripts/test.sh
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+      - name: Prepare runtime configuration
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+        run: |
+          cp deploy/env.example.yaml deploy/env.yaml
+          sed -i "s|your-project-id|${PROJECT_ID}|; s|https://your-ui.example.com|${CORS_ORIGIN}|" deploy/env.yaml
+      - name: Build and deploy to Cloud Run
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION }}
+        run: deploy/deploy.sh
