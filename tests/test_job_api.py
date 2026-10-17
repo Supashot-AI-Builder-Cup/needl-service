@@ -74,31 +74,16 @@ async def test_pending_job_shape(app, client):
     assert data["preview"] is None and data["verification"] is None and data["error"] is None
 
 
-async def test_verification_history_and_detail_use_saved_firestore_results(client):
-    ids = []
-    for link in (RISKY_LINK, SAFE_LINK):
-        created = await client.post(JOBS, json={"url": link, "locale": "id-ID"})
-        assert created.status_code == 202
-        job = await wait_for_job(client, created.json()["data"]["id"])
-        assert job["status"] == "completed"
-        ids.append(str(job["verification_id"]))
+async def test_verification_detail_uses_saved_firestore_result(client):
+    created = await client.post(JOBS, json={"url": RISKY_LINK, "locale": "id-ID"})
+    assert created.status_code == 202
+    job = await wait_for_job(client, created.json()["data"]["id"])
+    assert job["status"] == "completed"
+    verification_id = str(job["verification_id"])
 
-    page = await client.get("/api/v1/verifications?limit=1")
-    assert page.status_code == 200, page.text
-    body = page.json()
-    assert len(body["data"]) == 1
-    assert body["meta"]["next_cursor"]
-
-    next_page = await client.get(
-        "/api/v1/verifications", params={"limit": 1, "cursor": body["meta"]["next_cursor"]}
-    )
-    assert next_page.status_code == 200, next_page.text
-    assert len(next_page.json()["data"]) == 1
-    assert {body["data"][0]["id"], next_page.json()["data"][0]["id"]} == set(ids)
-
-    detail = await client.get(f"/api/v1/verifications/{ids[0]}")
+    detail = await client.get(f"/api/v1/verifications/{verification_id}")
     assert detail.status_code == 200, detail.text
-    assert str(detail.json()["data"]["id"]) == ids[0]
+    assert str(detail.json()["data"]["id"]) == verification_id
 
 
 async def test_expired_idempotency_key_starts_a_new_job(settings):

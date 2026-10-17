@@ -251,51 +251,6 @@ class Repository:
         snap = await self.client.collection(VERIFICATIONS).document(verification_id).get()
         return VerificationResult.model_validate_json(snap.get("result_json")) if snap.exists else None
 
-    async def list_verifications(
-        self,
-        *,
-        limit: int,
-        cursor: tuple[str, str] | None = None,
-        risk_level: str | None = None,
-        from_: str | None = None,
-        to: str | None = None,
-    ) -> list[dict[str, Any]]:
-        # ponytail: scan saved results to avoid composite indexes; switch to indexed
-        # Firestore queries when history volume warrants the index setup.
-        rows = []
-        start = datetime.fromisoformat(from_) if from_ else None
-        end = datetime.fromisoformat(to) if to else None
-        before = (datetime.fromisoformat(cursor[0]), cursor[1]) if cursor else None
-        async for snap in self.client.collection(VERIFICATIONS).stream():
-            row = snap.to_dict()
-            checked = _dt(row["checked_at"])
-            checked_at = checked.isoformat()
-            if risk_level and row["risk_level"] != risk_level:
-                continue
-            if start and checked < start:
-                continue
-            if end and checked >= end:
-                continue
-            if before and (checked, snap.id) >= before:
-                continue
-            rows.append((checked, snap.id, row))
-        rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        return [
-            {
-                "id": verification_id,
-                "source_kind": row["source_kind"],
-                "source_url": json.loads(row["result_json"])["source"].get("url"),
-                "name": row["name"],
-                "price": row["price"],
-                "store_name": row["store_name"],
-                "trust_score": row["trust_score"],
-                "risk_level": row["risk_level"],
-                "finding_count": row["finding_count"],
-                "checked_at": checked.isoformat(),
-            }
-            for checked, verification_id, row in rows[:limit]
-        ]
-
     async def find_fresh_verification(self, canonical_url: str, newer_than: datetime) -> str | None:
         snap = await self.client.collection(VERIFICATION_URLS).document(_doc_id(canonical_url)).get()
         if not snap.exists or _dt(snap.get("checked_at")) <= newer_than:

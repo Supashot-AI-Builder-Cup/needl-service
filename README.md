@@ -12,12 +12,11 @@ Implemented now:
 | --------------------------------------------- | --------------------------------------------------------- |
 | `POST /api/v1/verification-jobs`              | Start a job from a link (JSON) or screenshots (multipart) |
 | `GET /api/v1/verification-jobs/{job_id}`      | Poll progress, preview and the final result               |
-| `GET /api/v1/verifications`                   | List saved scans with filters and cursor pagination       |
 | `GET /api/v1/verifications/{verification_id}` | Read one saved result                                     |
 | `GET /health`                                 | Service check                                             |
 
 The analyzer supports sample mode for local development and Gemini analysis for
-live listings. History and detail endpoints read saved Firestore results.
+live listings. The detail endpoint reads saved Firestore results.
 
 ---
 
@@ -129,10 +128,7 @@ curl -i -X POST http://localhost:8000/api/v1/verification-jobs \
 # poll (use the id from the response)
 curl http://localhost:8000/api/v1/verification-jobs/<job_id>
 
-# saved verification history (optional filters: risk_level, from, to, cursor)
-curl 'http://localhost:8000/api/v1/verifications?limit=20&risk_level=safe'
-
-# one saved verification (use an id from history or a completed job)
+# one saved verification (use the verification_id from a completed job)
 curl http://localhost:8000/api/v1/verifications/<verification_id>
 
 # service health
@@ -148,9 +144,6 @@ optional matching `extra_names`, and `locale` (`en-US` or `id-ID`). Images must
 be JPEG, PNG, or WebP; each file is limited to 10 MiB, total upload to 30 MiB,
 and up to 10 images are accepted. JSON request bodies are limited to 16 KiB.
 
-History supports `limit` (1–100, default 20), `risk_level`, `from`, `to`, and the
-opaque `cursor` returned in `meta.next_cursor`. Dates are ISO 8601; `from` is
-inclusive and `to` is exclusive. Valid risk levels: `safe`, `suspicious`, `fraud`.
 Responses include `X-Request-ID`. Interactive OpenAPI docs: http://localhost:8000/docs
 
 In stub mode, links with shop id `218334561` get the "safe" sample and
